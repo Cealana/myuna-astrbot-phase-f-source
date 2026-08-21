@@ -10,4 +10,6 @@ The image overlay changes only:
 
 The reviewed AstrBot Dockerfile pins the official base image and overlays that exact file. Related Myuna Core and Deploy boundary source and generated-synthetic tests are included under their respective source directories.
 
+The reviewed Myuna Deploy Telegram gateway additionally appends one fixed, content-free no-charge corresponding-source offer to every plugin-owned emitted plain response through its existing result-construction seam. It introduces no additional Telegram send, provider call, endpoint, callback, database, store, or service route. Duplicate and no-result paths remain no-send.
+
 These modifications and the included corresponding source are offered under AGPL-3.0-or-later. Existing upstream notices remain intact.

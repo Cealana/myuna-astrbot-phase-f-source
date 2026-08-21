@@ -107,6 +107,9 @@ _PROVIDER_QUERY_LOCK = asyncio.Lock()
 _DELIVERY_ACK_EXTRA = "myuna_p07_delivery_binding_v2"
 _SEND_OUTCOME_EXTRA = "_astrbot_send_outcome_v1"
 _SEND_MARKER_EXTRA = "myuna_p07_send_marker_emitted_v1"
+_CORRESPONDING_SOURCE_OFFER = (
+    "对应源码（免费获取）：https://github.com/Cealana/myuna-astrbot-phase-f-source"
+)
 
 
 def _send_outcome(value: object) -> tuple[int, str, int, int] | None:
@@ -597,6 +600,15 @@ def _vision_current_request(caption: str | None) -> str:
     return caption.strip() if caption is not None else _DEFAULT_IMAGE_REQUEST
 
 
+def _plain_result_with_source_offer(
+    event: AstrMessageEvent,
+    reply: object,
+):
+    if type(reply) is not str:
+        return None
+    return event.plain_result(f"{reply}\n\n{_CORRESPONDING_SOURCE_OFFER}")
+
+
 def _dispatch_existing_result(
     event: AstrMessageEvent,
     result: dict[str, object],
@@ -612,26 +624,33 @@ def _dispatch_existing_result(
             if recovery_notice != RECOVERY_NOTICE_TEXT:
                 return None
             reply = f"{reply}\n\n{recovery_notice}"
-        return event.plain_result(reply)
+        return _plain_result_with_source_offer(event, reply)
     if result.get("kind") == "safe_degraded_reply":
-        return event.plain_result(result["degradation"]["reply"])
+        return _plain_result_with_source_offer(
+            event,
+            result["degradation"]["reply"],
+        )
     if result.get("kind") == "context_projection_unavailable":
-        return event.plain_result(
+        return _plain_result_with_source_offer(
+            event,
             _VISION_POST_PROVIDER_GATE_FAILURE_REPLY
             if visual_provider_called
             else _CONTEXT_PROJECTION_UNAVAILABLE_REPLY
         )
     if result.get("status") == "accepted" and result.get("code") == "owner-runtime-reply":
-        return event.plain_result(result["reply"])
+        return _plain_result_with_source_offer(event, result["reply"])
     if result.get("status") == "accepted":
-        return event.plain_result(
+        return _plain_result_with_source_offer(
+            event,
             "身份验证消息已安全接收；本阶段未调用模型、记忆或工具"
         )
     if result.get("code") == "owner-runtime-unavailable":
-        return event.plain_result(
+        return _plain_result_with_source_offer(
+            event,
             "Myuna 当前暂时无法回应，请稍后再试；未调用记忆或工具"
         )
-    return event.plain_result(
+    return _plain_result_with_source_offer(
+        event,
         _VISION_POST_PROVIDER_GATE_FAILURE_REPLY
         if visual_provider_called
         else "当前消息未通过 Telegram 安全入口验证；未调用模型、记忆或工具"
@@ -696,7 +715,10 @@ class Main(star.Star):
                 )
                 if preflight.get("kind") != "visual_preflight_ready":
                     if preflight.get("kind") == "visual_preflight_unavailable":
-                        yield event.plain_result(_VISION_PREFLIGHT_UNAVAILABLE_REPLY)
+                        yield _plain_result_with_source_offer(
+                            event,
+                            _VISION_PREFLIGHT_UNAVAILABLE_REPLY,
+                        )
                     else:
                         dispatched = _dispatch_existing_result(event, preflight)
                         if dispatched is not None:
@@ -724,7 +746,7 @@ class Main(star.Star):
                 ValueError,
             ):
                 logger.warning("Myuna Telegram native vision rejected at local media gate")
-                yield event.plain_result(_VISION_FAILURE_REPLY)
+                yield _plain_result_with_source_offer(event, _VISION_FAILURE_REPLY)
                 return
 
             try:
@@ -741,7 +763,7 @@ class Main(star.Star):
                     "Myuna Telegram native vision provider call failed closed category=%s",
                     _provider_failure_category(exc),
                 )
-                yield event.plain_result(_VISION_FAILURE_REPLY)
+                yield _plain_result_with_source_offer(event, _VISION_FAILURE_REPLY)
                 return
             finally:
                 if generated_path is not None:
@@ -765,7 +787,10 @@ class Main(star.Star):
                 logger.warning(
                     "Myuna Telegram vision-to-Core handoff failed closed"
                 )
-                yield event.plain_result(_VISION_POST_PROVIDER_GATE_FAILURE_REPLY)
+                yield _plain_result_with_source_offer(
+                    event,
+                    _VISION_POST_PROVIDER_GATE_FAILURE_REPLY,
+                )
                 return
             delivery_token = result.get("delivery_token")
             if isinstance(delivery_token, str):
@@ -830,7 +855,7 @@ class Main(star.Star):
                 logger.warning("Myuna Telegram media Shadow safely dropped an event")
                 bound_owner = False
             if bound_owner:
-                yield event.plain_result(_VISION_FAILURE_REPLY)
+                yield _plain_result_with_source_offer(event, _VISION_FAILURE_REPLY)
             return
 
         if _has_bounded_private_image(
@@ -843,7 +868,7 @@ class Main(star.Star):
             except GatewayTransportError:
                 return
             if _binding_matches(secret, sender_id, _BINDING_PATH):
-                yield event.plain_result(_VISION_FAILURE_REPLY)
+                yield _plain_result_with_source_offer(event, _VISION_FAILURE_REPLY)
             return
 
         has_plain_text_only = (
@@ -884,7 +909,7 @@ class Main(star.Star):
             logger.warning(
                 "Myuna Telegram boundary rejected an event without recording event content"
             )
-            yield event.plain_result(_INGRESS_FAILURE_REPLY)
+            yield _plain_result_with_source_offer(event, _INGRESS_FAILURE_REPLY)
             return
 
         if message_text == _BINDING_PHRASE and _verified_owner_result(result):
@@ -894,9 +919,9 @@ class Main(star.Star):
                     raise NativeVisionRejected("native vision rejected")
             except NativeVisionRejected:
                 logger.warning("Myuna Telegram native vision binding failed closed")
-                yield event.plain_result(_VISION_FAILURE_REPLY)
+                yield _plain_result_with_source_offer(event, _VISION_FAILURE_REPLY)
                 return
-            yield event.plain_result(_BINDING_REPLY)
+            yield _plain_result_with_source_offer(event, _BINDING_REPLY)
             return
 
         delivery_token = result.get("delivery_token")

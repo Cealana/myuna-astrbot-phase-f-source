@@ -35,6 +35,8 @@ Load only a verified archive through the builder's verified load seam. Then use 
 
 The compose route runs a single AstrBot Telegram service on its declared bridge network and uses existing read-only gateway/signing/media-auth mounts. Operators must preserve their own private runtime data and secret references outside this source tree.
 
+The mounted Telegram gateway source must be the exact reviewed Deploy file under `sources/myuna-deploy/channels/astrbot-telegram/plugin/myuna_telegram_gateway/main.py`. Its customary plain-response constructor preserves each reply prefix and appends the fixed public corresponding-source URL once. Verify that mounted file against `FILES.sha256` before activation.
+
 ## Modify
 
 Modify the source under `sources/astrbot/`, update the reviewed overlay and tests, then create a new independently reviewed source commit and deterministic receipt. Any change alters the expected source, layer, config, manifest, archive, and image identities; do not reuse the identities documented here for modified bytes.

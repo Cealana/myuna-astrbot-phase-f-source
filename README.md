@@ -9,7 +9,11 @@ The source is frozen from three reviewed repositories:
 
 - AstrBot commit `2d617544d883ea6c31ec40fcce59d4cfaa904dd1`, complete tree under `sources/astrbot/`.
 - Myuna Core commit `0d6885192307a75f6948e0085c3ca2c3c9f66676`, Phase F boundary files under `sources/myuna-core/`.
-- Myuna Deploy commit `997d6a566f22f7fb770925cf1efb2498d89b4be4`, deterministic builder, Telegram gateway, compose, and tests under `sources/myuna-deploy/`.
+- Myuna Deploy commit `7ff8f35a3e141674d7111a45dd247069d09d445a`, deterministic builder, Telegram gateway, compose, and tests under `sources/myuna-deploy/`.
+
+The reviewed Telegram gateway appends the following fixed no-charge offer as a separate paragraph to every plugin-owned emitted plain response:
+
+`对应源码（免费获取）：https://github.com/Cealana/myuna-astrbot-phase-f-source`
 
 See `CORRESPONDING_SOURCE_OFFER.md`, `MODIFICATION_NOTICE.md`, `BUILD_INSTALL_RUN.md`, `SOURCE_MANIFEST.json`, and `FILES.sha256` for the offer, modification record, reproduction instructions, exact identities, and file checksums.
 
