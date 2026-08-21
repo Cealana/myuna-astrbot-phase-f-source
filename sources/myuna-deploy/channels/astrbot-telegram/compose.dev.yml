@@ -1,0 +1,59 @@
+name: myuna-astrbot-telegram-dev
+
+services:
+  astrbot-telegram:
+    image: myuna/astrbot-phase-f-deterministic@sha256:ef2d2f966745b6d2e05b3286698bf6601a9a2c478f762b6b0df9703eee48d214
+    container_name: myuna-astrbot-telegram-dev
+    user: "${CHANNEL_UID:?CHANNEL_UID is required}:${CHANNEL_GID:?CHANNEL_GID is required}"
+    init: true
+    restart: "on-failure:3"
+    env_file:
+      - /etc/myuna/secrets/gemini-api-key-telegram-gateway.env
+    environment:
+      HOME: /AstrBot/data/home
+      MYUNA_GATEWAY_CHANNEL_INSTANCE: telegram-owner-dev
+      MYUNA_GATEWAY_SIGNING_SECRET: /run/secrets/myuna-telegram-channel-signing-v1
+      MYUNA_GATEWAY_SOCKET: /run/myuna-telegram-gateway/owner.sock
+      MYUNA_MEDIA_SHADOW_SOCKET: /run/myuna-telegram-media-auth/shadow.sock
+      PYTHONDONTWRITEBYTECODE: "1"
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:6285:6185"
+    volumes:
+      - "${CHANNEL_ROOT:?CHANNEL_ROOT is required}/astrbot-data:/AstrBot/data"
+      - "${CHANNEL_PLUGIN_ROOT:?CHANNEL_PLUGIN_ROOT is required}:/AstrBot/data/plugins/astrbot_plugin_myuna_telegram_gateway:ro"
+      - "${CHANNEL_SIGNING_SECRET_PATH:?CHANNEL_SIGNING_SECRET_PATH is required}:/run/secrets/myuna-telegram-channel-signing-v1:ro"
+      - "${CHANNEL_RUNTIME_ROOT:?CHANNEL_RUNTIME_ROOT is required}:/run/myuna-telegram-gateway:ro"
+      - "${CHANNEL_MEDIA_AUTH_RUNTIME_ROOT:?CHANNEL_MEDIA_AUTH_RUNTIME_ROOT is required}:/run/myuna-telegram-media-auth:ro"
+    networks:
+      - telegram
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 192
+    mem_limit: 1024m
+    cpus: "1.00"
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=128m,uid=${CHANNEL_UID},gid=${CHANNEL_GID}
+    stop_grace_period: 30s
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket; s=socket.create_connection(('127.0.0.1',6185),3); s.close()"
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+
+networks:
+  telegram:
+    name: myuna-astrbot-telegram-dev
+    driver: bridge
