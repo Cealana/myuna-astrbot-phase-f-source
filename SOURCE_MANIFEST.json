@@ -1,1 +1,39 @@
-{"artifact":{"archive_sha256":"6b0e6db3717a654628db0e831c7cc969ab3609d753d4b2f69ac92f249eb86259","base_image_digest":"sha256:7546bddf1040419a455dd1ca683a5e9cf84436bbd85de17c7ac626d3af7affe4","config_digest":"sha256:b55e699d4db6b94398cddb0c6c116fbc324bbcdbe27f9fdc63a93d5224edff45","manifest_digest":"sha256:ef2d2f966745b6d2e05b3286698bf6601a9a2c478f762b6b0df9703eee48d214","repository":"myuna/astrbot-phase-f-deterministic"},"license":"AGPL-3.0-or-later","modified":"2026-08-26","publication_url":"https://github.com/Cealana/myuna-astrbot-phase-f-source","runtime_release":{"base_release_digest":"6b10fc936994eaeb97fae4d4f96375c93ddcf9a505140cbaac6d9ef304b4b7af","core_import_closure_count":77,"file_count":104,"manifest_sha256":"b38319960e888bb912d75ef190671e75b3de3ca1029831d4785fdd2533e1ec8a","release_digest":"c8750179574a6e61dca8a593c2227ad8e14ac2171809dff87f564b79864207b5","runtime_profile":"p07-owner-private-memory-v1"},"schema":"myuna.phase-f-corresponding-source.v2","source_date_epoch":1787685842,"sources":{"astrbot":{"commit":"2d617544d883ea6c31ec40fcce59d4cfaa904dd1","scope":"complete","tree":"bca89db05ec7a2a56afcb66741ff12dd5ba29f67"},"core":{"commit":"4c13c0b20552b5d8a8720f180d0569405fed00b0","scope":"complete","tree":"e43ae07babf5a448525d1035d400a37fde374a2b"},"deploy":{"commit":"c1aac3b2a41edfe8596cdf895bd0c8e9bbb6dcb1","scope":"complete","tree":"11f7f6dad1078cc550b688466962b2f8cfc478ec"}}}
+{
+  "artifact": {
+    "archive_sha256": "6b0e6db3717a654628db0e831c7cc969ab3609d753d4b2f69ac92f249eb86259",
+    "base_image_digest": "sha256:7546bddf1040419a455dd1ca683a5e9cf84436bbd85de17c7ac626d3af7affe4",
+    "config_digest": "sha256:b55e699d4db6b94398cddb0c6c116fbc324bbcdbe27f9fdc63a93d5224edff45",
+    "manifest_digest": "sha256:ef2d2f966745b6d2e05b3286698bf6601a9a2c478f762b6b0df9703eee48d214",
+    "repository": "myuna/astrbot-phase-f-deterministic"
+  },
+  "license": "AGPL-3.0-or-later",
+  "modified": "2026-08-26",
+  "publication_url": "https://github.com/Cealana/myuna-astrbot-phase-f-source",
+  "runtime_release": {
+    "base_release_digest": "6b10fc936994eaeb97fae4d4f96375c93ddcf9a505140cbaac6d9ef304b4b7af",
+    "core_import_closure_count": 77,
+    "file_count": 104,
+    "manifest_sha256": "b38319960e888bb912d75ef190671e75b3de3ca1029831d4785fdd2533e1ec8a",
+    "release_digest": "c8750179574a6e61dca8a593c2227ad8e14ac2171809dff87f564b79864207b5",
+    "runtime_profile": "p07-owner-private-memory-v1"
+  },
+  "schema": "myuna.phase-f-corresponding-source.v2",
+  "source_date_epoch": 1787685842,
+  "sources": {
+    "astrbot": {
+      "commit": "2d617544d883ea6c31ec40fcce59d4cfaa904dd1",
+      "scope": "complete",
+      "tree": "bca89db05ec7a2a56afcb66741ff12dd5ba29f67"
+    },
+    "core": {
+      "commit": "4c13c0b20552b5d8a8720f180d0569405fed00b0",
+      "scope": "complete",
+      "tree": "e43ae07babf5a448525d1035d400a37fde374a2b"
+    },
+    "deploy": {
+      "commit": "e7d624659b882280b5c874e3095dcc46662236b6",
+      "scope": "complete",
+      "tree": "bc1160625986ecbe418b7c943334c872f8f405f2"
+    }
+  }
+}

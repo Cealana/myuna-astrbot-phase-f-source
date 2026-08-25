@@ -339,7 +339,7 @@ class AstrBotTelegramGatewayTests(unittest.TestCase):
         self.secret = b"synthetic-telegram-signing-secret-32-bytes"
         self.now = datetime(2026, 7, 25, 0, 0, tzinfo=timezone.utc)
 
-    def test_corresponding_source_offer_is_fixed_and_preserves_reply_prefix(self) -> None:
+    def test_plain_result_preserves_reply_without_source_offer(self) -> None:
         offer = (
             "对应源码（免费获取）："
             "https://github.com/Cealana/myuna-astrbot-phase-f-source"
@@ -354,22 +354,17 @@ class AstrBotTelegramGatewayTests(unittest.TestCase):
         )
         for reply in replies:
             event = _DummyEvent("123456789", [_DummyPlain("synthetic")])
-            projected = gateway._plain_result_with_source_offer(event, reply)
-            self.assertEqual(projected, f"{reply}\n\n{offer}")
-            self.assertTrue(projected.startswith(reply))
-            self.assertEqual(projected[len(reply) :], f"\n\n{offer}")
+            projected = gateway._plain_result(event, reply)
+            self.assertEqual(projected, reply)
             self.assertEqual(event.plain_results, [projected])
-            self.assertEqual(projected.count(offer), 1)
+            self.assertNotIn(offer, projected)
 
         event = _DummyEvent("123456789", [_DummyPlain("synthetic")])
         for malformed in (None, True, 1, 1.0, b"reply", ["reply"], {"reply": "x"}):
-            self.assertIsNone(
-                gateway._plain_result_with_source_offer(event, malformed)
-            )
+            self.assertIsNone(gateway._plain_result(event, malformed))
         self.assertEqual(event.plain_results, [])
 
-    def test_every_emitted_response_family_uses_the_fixed_source_offer(self) -> None:
-        offer = gateway._CORRESPONDING_SOURCE_OFFER
+    def test_every_emitted_response_family_preserves_exact_reply(self) -> None:
         recovery = protocol.RECOVERY_NOTICE_TEXT
         cases = (
             (
@@ -439,7 +434,7 @@ class AstrBotTelegramGatewayTests(unittest.TestCase):
                 result,
                 visual_provider_called=visual_provider_called,
             )
-            self.assertEqual(projected, f"{original}\n\n{offer}")
+            self.assertEqual(projected, original)
             self.assertEqual(event.plain_results, [projected])
 
         duplicate_event = _DummyEvent("123456789", [_DummyPlain("synthetic")])
@@ -451,7 +446,7 @@ class AstrBotTelegramGatewayTests(unittest.TestCase):
         )
         self.assertEqual(duplicate_event.plain_results, [])
 
-    def test_source_offer_constructor_is_the_only_plain_result_call(self) -> None:
+    def test_plain_result_helper_is_the_only_plain_result_call(self) -> None:
         tree = ast.parse(MAIN_PATH.read_text(encoding="utf-8"))
         plain_result_calls = []
         helper_calls = []
@@ -465,17 +460,17 @@ class AstrBotTelegramGatewayTests(unittest.TestCase):
                 plain_result_calls.append(node)
             if (
                 isinstance(node.func, ast.Name)
-                and node.func.id == "_plain_result_with_source_offer"
+                and node.func.id == "_plain_result"
             ):
                 helper_calls.append(node)
         self.assertEqual(len(plain_result_calls), 1)
-        self.assertEqual(len(helper_calls), 16)
+        self.assertEqual(len(helper_calls), 17)
 
         helper = next(
             node
             for node in tree.body
             if isinstance(node, ast.FunctionDef)
-            and node.name == "_plain_result_with_source_offer"
+            and node.name == "_plain_result"
         )
         self.assertIn(plain_result_calls[0], tuple(ast.walk(helper)))
 
@@ -896,10 +891,7 @@ class AstrBotTelegramGatewayTests(unittest.TestCase):
         recovered = protocol.decode_gateway_response(raw)
         self.assertEqual(
             gateway._dispatch_existing_result(event, recovered),
-            (
-                f"normal reply\n\n{protocol.RECOVERY_NOTICE_TEXT}"
-                f"\n\n{gateway._CORRESPONDING_SOURCE_OFFER}"
-            ),
+            f"normal reply\n\n{protocol.RECOVERY_NOTICE_TEXT}",
         )
 
         tampered = json.dumps(
@@ -1074,6 +1066,44 @@ class AstrBotTelegramGatewayTests(unittest.TestCase):
 
 
 class NativeVisionGatewayFlowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_source_command_is_local_and_ordinary_reply_has_no_offer(self) -> None:
+        context = _DummyContext()
+        plugin = gateway.Main(context)
+        original_read = gateway.read_signing_secret
+        original_send = gateway.send_envelope
+        calls = []
+
+        def forbidden(*args, **kwargs):
+            calls.append((args, kwargs))
+            raise AssertionError("local source command must not contact the gateway")
+
+        gateway.read_signing_secret = forbidden
+        gateway.send_envelope = forbidden
+        try:
+            for command in ("/source", "/SOURCE@Myuna_bot", "  /source  "):
+                event = _DummyEvent("123456789", [_DummyPlain(command)])
+                self.assertEqual(
+                    await _collect(plugin.intercept_telegram(event)),
+                    [gateway._CORRESPONDING_SOURCE_OFFER],
+                )
+                self.assertIs(event.call_llm, False)
+                self.assertTrue(event.stopped)
+            self.assertEqual(calls, [])
+
+            event = _DummyEvent("123456789", [_DummyPlain("ordinary")])
+            self.assertEqual(
+                gateway._plain_result(event, "ordinary reply"),
+                "ordinary reply",
+            )
+            self.assertNotIn(
+                gateway._CORRESPONDING_SOURCE_OFFER,
+                event.plain_results[0],
+            )
+        finally:
+            gateway.read_signing_secret = original_read
+            gateway.send_envelope = original_send
+            await plugin.terminate()
+
     async def test_check_success_and_transport_failure_always_yield_a_reply(self) -> None:
         context = _DummyContext()
         plugin = gateway.Main(context)
@@ -1095,10 +1125,7 @@ class NativeVisionGatewayFlowTests(unittest.IsolatedAsyncioTestCase):
             success = _DummyEvent("123456789", [_DummyPlain("/Check")])
             self.assertEqual(
                 await _collect(plugin.intercept_telegram(success)),
-                [
-                    "[CHECK · MYUNA · overview]\n\nsynthetic result"
-                    f"\n\n{gateway._CORRESPONDING_SOURCE_OFFER}"
-                ],
+                ["[CHECK · MYUNA · overview]\n\nsynthetic result"],
             )
             self.assertEqual(captured, ["/Check"])
             self.assertIs(success.call_llm, False)
@@ -1112,10 +1139,7 @@ class NativeVisionGatewayFlowTests(unittest.IsolatedAsyncioTestCase):
             failure_replies = await _collect(plugin.intercept_telegram(failure))
             self.assertEqual(
                 failure_replies,
-                [
-                    gateway._INGRESS_FAILURE_REPLY
-                    + f"\n\n{gateway._CORRESPONDING_SOURCE_OFFER}"
-                ],
+                [gateway._INGRESS_FAILURE_REPLY],
             )
             self.assertNotIn("private-marker-must-not-project", failure_replies[0])
             self.assertIs(failure.call_llm, False)
@@ -1173,10 +1197,7 @@ class NativeVisionGatewayFlowTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertEqual(
                     await _collect(plugin.intercept_telegram(bind_event)),
-                    [
-                        gateway._BINDING_REPLY
-                        + f"\n\n{gateway._CORRESPONDING_SOURCE_OFFER}"
-                    ],
+                    [gateway._BINDING_REPLY],
                 )
                 self.assertEqual(captured_text, [gateway._BINDING_PHRASE])
 
@@ -1184,10 +1205,7 @@ class NativeVisionGatewayFlowTests(unittest.IsolatedAsyncioTestCase):
                 replies = await _collect(plugin.intercept_telegram(photo))
                 self.assertEqual(
                     replies,
-                    [
-                        "这是 Myuna 根据图片和你的问题给出的回复。"
-                        f"\n\n{gateway._CORRESPONDING_SOURCE_OFFER}"
-                    ],
+                    ["这是 Myuna 根据图片和你的问题给出的回复。"],
                 )
                 self.assertEqual(len(captured_text), 3)
                 self.assertEqual(captured_text[1], "ignored")
@@ -1222,10 +1240,7 @@ class NativeVisionGatewayFlowTests(unittest.IsolatedAsyncioTestCase):
                 no_caption = _DummyEvent("123456789", [_DummyImage()])
                 self.assertEqual(
                     await _collect(plugin.intercept_telegram(no_caption)),
-                    [
-                        "这是 Myuna 根据图片和你的问题给出的回复。"
-                        f"\n\n{gateway._CORRESPONDING_SOURCE_OFFER}"
-                    ],
+                    ["这是 Myuna 根据图片和你的问题给出的回复。"],
                 )
                 self.assertIn(gateway._DEFAULT_IMAGE_REQUEST, captured_text[3])
                 self.assertFalse(
@@ -1240,10 +1255,7 @@ class NativeVisionGatewayFlowTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertEqual(
                     await _collect(plugin.intercept_telegram(capacity_blocked)),
-                    [
-                        gateway._VISION_PREFLIGHT_UNAVAILABLE_REPLY
-                        + f"\n\n{gateway._CORRESPONDING_SOURCE_OFFER}"
-                    ],
+                    [gateway._VISION_PREFLIGHT_UNAVAILABLE_REPLY],
                 )
                 self.assertEqual(len(context.provider.calls), 2)
                 block_visual_preflight[0] = False
@@ -1254,10 +1266,7 @@ class NativeVisionGatewayFlowTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertEqual(
                     await _collect(plugin.intercept_telegram(unresolved_remote)),
-                    [
-                        gateway._VISION_FAILURE_REPLY
-                        + f"\n\n{gateway._CORRESPONDING_SOURCE_OFFER}"
-                    ],
+                    [gateway._VISION_FAILURE_REPLY],
                 )
                 self.assertEqual(len(context.provider.calls), 2)
 
@@ -1267,10 +1276,7 @@ class NativeVisionGatewayFlowTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertEqual(
                     await _collect(plugin.intercept_telegram(unsupported)),
-                    [
-                        gateway._VISION_FAILURE_REPLY
-                        + f"\n\n{gateway._CORRESPONDING_SOURCE_OFFER}"
-                    ],
+                    [gateway._VISION_FAILURE_REPLY],
                 )
                 self.assertEqual(len(context.provider.calls), 2)
 
