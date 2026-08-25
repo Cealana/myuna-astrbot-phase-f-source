@@ -1,0 +1,44 @@
+[Unit]
+Description=Myuna verified Owner Telegram private runtime gateway (dev)
+Documentation=file:@GATEWAY_RELEASE_ROOT@/docs/ADR-033-astrbot-telegram-owner-runtime-v1.md
+Requires=postgresql.service myuna-core@qq.service
+After=postgresql.service myuna-core@qq.service
+ConditionPathExists=/etc/myuna-telegram-gateway/runtime-approved
+ConditionPathExists=/etc/myuna-telegram-gateway/owner-runtime-v1.json
+
+[Service]
+Type=simple
+User=myuna-gateway-telegram
+Group=myuna-gateway-telegram
+ExecStart=/usr/bin/python3 @GATEWAY_RELEASE_ROOT@/scripts/telegram_owner_runtime_gateway.py
+Environment=PYTHONPATH=@CORE_RELEASE_ROOT@/src:@GATEWAY_RELEASE_ROOT@/scripts
+LoadCredential=channel-signing:/etc/myuna-telegram-gateway/secrets/channel-signing-v1
+LoadCredential=identity-pepper:/etc/myuna-telegram-gateway/secrets/identity-pepper-v1
+LoadCredential=core-token:/etc/myuna-telegram-gateway/secrets/core-token-v1
+UMask=0077
+Restart=on-failure
+RestartSec=5s
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET
+IPAddressDeny=any
+IPAddressAllow=127.0.0.1/32
+ReadWritePaths=/var/lib/myuna-telegram-gateway /var/log/myuna-telegram-gateway
+
+[Install]
+WantedBy=sockets.target

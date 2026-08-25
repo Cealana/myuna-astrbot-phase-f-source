@@ -1,0 +1,34 @@
+[Unit]
+Description=Myuna Owner Memory read-only v2 worker
+Requires=myuna-owner-memory-read-v2.socket
+After=postgresql.service
+
+[Service]
+Type=simple
+User=myuna_memory_runtime
+Group=myuna_memory_runtime
+WorkingDirectory=/opt/myuna/owner-memory-read-v2/releases/r2-20260721
+Environment=PYTHONPATH=/opt/myuna/owner-memory-read-v2/releases/r2-20260721/src
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -m owner_memory_retrieval_v2.socket_worker
+Restart=on-failure
+RestartSec=3s
+UMask=0077
+TasksMax=32
+MemoryMax=256M
+CPUQuota=50%
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+PrivateNetwork=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX

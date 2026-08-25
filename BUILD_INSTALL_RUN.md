@@ -1,44 +1,32 @@
 # Build, Install, Run, and Modify
 
-## Inputs
+## Frozen inputs
 
-- Linux amd64.
-- Python executable `/usr/bin/python3.12` with the exact identity enforced by the reviewed builder.
-- Docker executable `/usr/bin/docker` with the exact identity enforced by the reviewed builder.
-- The pinned official base image and all of its layers already present locally at `sha256:7546bddf1040419a455dd1ca683a5e9cf84436bbd85de17c7ac626d3af7affe4`.
-- No network access is used by the deterministic builder.
+- Core commit `0da52b29f5ec18578a58f9467e0a5ef2becdcc72` / tree `8f9432d3821590c737cc04975ab151eb2b1927ce`.
+- Deploy commit `053f8d74a44ee447d4f4adfdb2131cafdb03074c` / tree `be21865250649d06e09e865d66ebdadb91c592ab`.
+- AstrBot commit `2d617544d883ea6c31ec40fcce59d4cfaa904dd1` / tree `bca89db05ec7a2a56afcb66741ff12dd5ba29f67`.
+- Runtime base `6b10fc936994eaeb97fae4d4f96375c93ddcf9a505140cbaac6d9ef304b4b7af` under `sources/runtime-base/`.
+- Linux amd64, `/usr/bin/python3`, and no network access for the runtime import smoke.
 
-The reviewed builder verifies the complete official-base config, all base layer DiffIDs, tool identities, source commit, source epoch, Dockerfile, overlay bytes, canonical archive metadata, OCI config, manifest, and index.
+## Deterministic owner runtime build
 
-## Deterministic build
-
-From the repository root, use two absent output directories on the same local filesystem:
+Run the reviewed builder twice from this repository root with absent output directories:
 
 ```sh
-python3.12 sources/myuna-deploy/scripts/build_telegram_gateway_release_v1.py \
-  sources/astrbot output-a
-python3.12 sources/myuna-deploy/scripts/build_telegram_gateway_release_v1.py \
-  sources/astrbot output-b
+PYTHONPATH=sources/myuna-core/src:sources/myuna-deploy/scripts PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 -B \
+  sources/myuna-deploy/scripts/build_p07_hybrid_live_releases_v1.py \
+  --core-source sources/myuna-core --core-commit 0da52b29f5ec18578a58f9467e0a5ef2becdcc72 --core-output output-a/core \
+  --deploy-source sources/myuna-deploy --deploy-commit 053f8d74a44ee447d4f4adfdb2131cafdb03074c \
+  --runtime-base sources/runtime-base/6b10fc936994eaeb97fae4d4f96375c93ddcf9a505140cbaac6d9ef304b4b7af --runtime-output output-a/runtime \
+  --runtime-profile p07-owner-private-memory-v1
 ```
 
-The two independently generated archives and receipts must be byte-identical. Public verification is performed by the same reviewed builder module before any image load. Do not substitute a different base, interpreter, Docker executable, source epoch, source commit, or output-publication route.
+The expected runtime release is `21cc54f20eaddfa8701e1a6d81620f8b40fafd5b551e6f681d36b779176c1f3c`. Reopen it with the reviewed validator and run the exact service-identity, runtime-only `PYTHONPATH`, `-B`, no-bytecode, network-denied import smoke before installation. Installation is content-addressed and must never overwrite an existing release.
 
-Expected selected image identities:
+## AstrBot image
 
-- OCI/Docker manifest and Docker 29 image identity: `sha256:ef2d2f966745b6d2e05b3286698bf6601a9a2c478f762b6b0df9703eee48d214`
-- Config digest: `sha256:b55e699d4db6b94398cddb0c6c116fbc324bbcdbe27f9fdc63a93d5224edff45`
-- Canonical OCI archive SHA-256: `6b0e6db3717a654628db0e831c7cc969ab3609d753d4b2f69ac92f249eb86259`
-
-## Install and run
-
-Load only a verified archive through the builder's verified load seam. Then use `sources/myuna-deploy/channels/astrbot-telegram/compose.dev.yml`, which pins the manifest digest above. Supply the referenced UID/GID, runtime directories, mounts, and secret references through the deployment environment. This publication intentionally includes no secret or private configuration value.
-
-The compose route runs a single AstrBot Telegram service on its declared bridge network and uses existing read-only gateway/signing/media-auth mounts. Operators must preserve their own private runtime data and secret references outside this source tree.
-
-The mounted Telegram gateway source must be the exact reviewed Deploy file under `sources/myuna-deploy/channels/astrbot-telegram/plugin/myuna_telegram_gateway/main.py`. Its customary plain-response constructor preserves each reply prefix and appends the fixed public corresponding-source URL once. Verify that mounted file against `FILES.sha256` before activation.
+The accepted AstrBot OCI image/config/archive binding is unchanged and is recorded in `SOURCE_MANIFEST.json`. Use the reviewed `sources/myuna-deploy/scripts/build_telegram_gateway_release_v1.py` route and compare independently generated receipts before load.
 
 ## Modify
 
-Modify the source under `sources/astrbot/`, update the reviewed overlay and tests, then create a new independently reviewed source commit and deterministic receipt. Any change alters the expected source, layer, config, manifest, archive, and image identities; do not reuse the identities documented here for modified bytes.
-
-The relevant generated-synthetic tests are included under `sources/astrbot/tests/`, `sources/myuna-core/tests/`, and `sources/myuna-deploy/tests/`.
+Changes to Core, Deploy, AstrBot, the runtime base, selected overlays, or the import closure produce new source and release identities. Do not reuse the identities above for modified bytes. Runtime selection remains a separate supervised live operation.

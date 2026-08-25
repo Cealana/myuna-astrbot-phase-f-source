@@ -1,0 +1,22 @@
+{
+  "schema": "myuna.core-release-selection-binding-intent.v1",
+  "status": "inactive_staging",
+  "unit": "myuna-core@qq.service",
+  "instance": "qq",
+  "release_root": "/srv/myuna/releases/core",
+  "selector_dropin": "10-core-release-selector-v1.conf",
+  "guard_dropin": "05-core-release-selector-guard-v1.conf",
+  "candidate_canonical_sha256": "b55d45bca0e0f9361de4db5cfe943c357c1267145d0ad37394901631d273f699",
+  "selector_dropin_sha256": "a8a733ade0992c3d94f919afc945fb052dbd1580cd777efccf6b0365bfb32ef0",
+  "guard_dropin_sha256": "30c69f98d8a27c5d3cd04c6ae9b9ad7513e00685e0003ee71399a3d2fae180c4",
+  "verifier_script_path": "/opt/myuna/core-release-selector/releases/3fab13b7b533c3e93bf5759256ff5153d7bb17aea0fc8307f560e82985a7fcaf/core_release_selector.py",
+  "verifier_script_sha256": "3fab13b7b533c3e93bf5759256ff5153d7bb17aea0fc8307f560e82985a7fcaf",
+  "selected_release": {
+    "tree_digest_algorithm": "myuna-path-content-tree-sha256-v1",
+    "tree_sha256": "430be06ece061b16b3bc2d67e9e2d17764c81073ffc8593403470063935f68a8",
+    "source_commit": "1d968d9bf361cc50a4a9b709a566c698424f3287",
+    "file_count": 149,
+    "artifact_manifest_sha256": "7909359616a3b089f9b6fe5c6b90e6900c7edd9c849e33b012c4b909bc5ac938",
+    "installation_receipt_sha256": "b296bcc04909a459e39d3f60724e7987f431187d05958bc74df99eaf60069777"
+  }
+}

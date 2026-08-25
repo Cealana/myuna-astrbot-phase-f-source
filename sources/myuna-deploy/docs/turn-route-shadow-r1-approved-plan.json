@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "plan_id": "myuna-turn-route-metadata-shadow-v1-r1-source-candidate-20260720",
+  "status": "pending-owner-approval",
+  "objective": "build and test a repository-only Turn/Route metadata-only Shadow source candidate",
+  "allowed": [
+    "add candidate worker, classifier, schema, configuration template, systemd templates, and tests to the deploy repository",
+    "adapt the repository copy of the post-reply fanout so two Shadow sinks are isolated",
+    "use synthetic fixtures, fake sockets, fake Core responses, and a fake local-model client",
+    "run repository unit tests and static security checks",
+    "write candidate reports and rollback documentation",
+    "commit reviewed source and documentation changes to the local deploy repository"
+  ],
+  "forbidden": [
+    "copy candidate code into /opt, /usr/local/libexec, /etc, /run, or /var",
+    "create or modify system users, groups, sudo rules, credentials, secrets, timers, services, sockets, tasks, startup entries, firewall rules, or ports",
+    "restart, reload, stop, or start any live service, container, WSL instance, Windows service, Minecraft service, or local model",
+    "change the installed QQ gateway, Myuna Core, Definition release, capability manifest, routing policy, memory system, or NapCat configuration",
+    "connect the candidate to QQ, AstrBot, NapCat, Myuna Core, DeepSeek, OpenAI, Owner Memory, History Archive, or tools",
+    "read real QQ message content or persist any real text, input hash, identity, account, principal, namespace, prompt, reply, credential, token, cookie, or QR data",
+    "suppress, delay, merge, cancel, or alter a real reply",
+    "switch a real provider or model route",
+    "activate Turn Manager, Temporal Buffer, Model Router, local-model routing, or any Shadow runtime"
+  ],
+  "required_tests": [
+    "post-reply ordering",
+    "independent best-effort fanout",
+    "socket missing and queue full isolation",
+    "strict event schema and size limits",
+    "bounded actual-route mapping",
+    "rule, model, and fallback classifier paths",
+    "metadata allowlist and forbidden-key rejection",
+    "no text, hash, identity, secret, or dynamic exception in traces",
+    "zero reply suppression, delay, merge, or provider switching",
+    "model unavailable and timeout cannot escape to the production path",
+    "systemd hardening template checks",
+    "rollback marker behavior"
+  ],
+  "production_effect": "none",
+  "activation_performed": false
+}

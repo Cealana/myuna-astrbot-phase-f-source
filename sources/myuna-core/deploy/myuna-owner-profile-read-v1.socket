@@ -1,0 +1,19 @@
+[Unit]
+Description=Myuna Owner Profile read-only v1 local socket
+Wants=systemd-tmpfiles-setup.service
+After=systemd-tmpfiles-setup.service
+
+[Socket]
+ListenStream=/run/myuna-owner-profile-read-v1/profile.sock
+SocketUser=myuna_owner_profile
+SocketGroup=myuna
+SocketMode=0660
+DirectoryMode=0750
+RemoveOnStop=true
+Service=myuna-owner-profile-read-v1.service
+MaxConnections=8
+TriggerLimitIntervalSec=30s
+TriggerLimitBurst=10
+
+[Install]
+WantedBy=sockets.target

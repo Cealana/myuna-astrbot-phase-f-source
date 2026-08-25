@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "policy_id": "owner-qq-shadow-deterministic-zh-v1",
+  "service_version": "owner-memory-shadow-adapter-v1",
+  "namespace": "ns-owner-cealana-private",
+  "namespace_source": "root_owned_fixed_policy",
+  "capabilities": {
+    "qq_core_real_memory_read": false,
+    "qq_core_real_memory_write": false,
+    "qq_core_prompt_memory_injection": false,
+    "owner_memory_shadow_adapter_read": true,
+    "owner_memory_shadow_trace_plaintext": false
+  },
+  "raw_lexical_floor": 0.12,
+  "top_final_floor": 0.28,
+  "secondary_final_floor": 0.24,
+  "secondary_relative_to_top": 0.65,
+  "ordinary_default_top_k": 1,
+  "ordinary_max_top_k": 2,
+  "deep_max_top_k": 3,
+  "ordinary_recent_days": 3,
+  "restricted_live": false,
+  "trace_plaintext": false
+}

@@ -1,0 +1,157 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "source": "core",
+      "error": "provider_unavailable",
+      "provider_code": "transport_failure",
+      "http_status": 503,
+      "category": "provider_transient_failure",
+      "detail": "provider-transport-failure",
+      "retryable": true,
+      "owner_action_required": false
+    },
+    {
+      "source": "core",
+      "error": "provider_unavailable",
+      "provider_code": "authentication_failed",
+      "http_status": 502,
+      "category": "provider_budget_or_auth_failure",
+      "detail": "provider-authentication-failed",
+      "retryable": false,
+      "owner_action_required": true
+    },
+    {
+      "source": "core",
+      "error": "provider_unavailable",
+      "provider_code": "invalid_response",
+      "http_status": 502,
+      "category": "provider_transient_failure",
+      "detail": "provider-invalid-response",
+      "retryable": true,
+      "legacy_retryable": false,
+      "owner_action_required": false
+    },
+    {
+      "source": "core",
+      "error": "provider_daily_budget_exceeded",
+      "core_code": "provider_daily_budget_exceeded",
+      "http_status": 429,
+      "category": "provider_budget_or_auth_failure",
+      "detail": "provider-daily-budget-exceeded",
+      "retryable": false,
+      "owner_action_required": true
+    },
+    {
+      "source": "core",
+      "error": "provider_budget_accounting_unavailable",
+      "core_code": "provider_budget_accounting_failed",
+      "http_status": 503,
+      "category": "core_or_gateway_failure",
+      "detail": "provider-budget-accounting-failed",
+      "retryable": false,
+      "owner_action_required": true
+    },
+    {
+      "source": "core",
+      "error": "provider_unavailable",
+      "provider_code": "local_timeout",
+      "http_status": 503,
+      "category": "provider_transient_failure",
+      "detail": "local-provider-timeout",
+      "retryable": true,
+      "owner_action_required": false
+    },
+    {
+      "source": "core",
+      "error": "provider_unavailable",
+      "provider_code": "local_busy",
+      "http_status": 503,
+      "category": "provider_transient_failure",
+      "detail": "local-provider-busy",
+      "retryable": true,
+      "owner_action_required": false
+    },
+    {
+      "source": "core",
+      "error": "provider_unavailable",
+      "provider_code": "model_unavailable",
+      "http_status": 502,
+      "category": "core_or_gateway_failure",
+      "detail": "local-model-not-ready",
+      "retryable": false,
+      "owner_action_required": true
+    },
+    {
+      "source": "core",
+      "error": "provider_unavailable",
+      "provider_code": "local_unavailable",
+      "http_status": 503,
+      "category": "provider_transient_failure",
+      "detail": "local-provider-unavailable",
+      "retryable": true,
+      "owner_action_required": false
+    },
+    {
+      "source": "core",
+      "error": "provider_unavailable",
+      "provider_code": "local_http_error",
+      "http_status": 502,
+      "category": "core_or_gateway_failure",
+      "detail": "local-provider-http-rejected",
+      "retryable": false,
+      "owner_action_required": true
+    },
+    {
+      "source": "core",
+      "error": "provider_unavailable",
+      "provider_code": "local_server_error",
+      "http_status": 503,
+      "category": "provider_transient_failure",
+      "detail": "local-provider-unavailable",
+      "retryable": true,
+      "owner_action_required": false
+    },
+    {
+      "source": "core",
+      "error": "provider_unavailable",
+      "provider_code": "endpoint_redirect_forbidden",
+      "http_status": 502,
+      "category": "core_or_gateway_failure",
+      "detail": "local-provider-endpoint-rejected",
+      "retryable": false,
+      "owner_action_required": true
+    },
+    {
+      "source": "core",
+      "error": "reply_failed_runtime_guard",
+      "core_code": "reply_runtime_guard_rejected",
+      "http_status": 502,
+      "category": "reply_contract_rejected",
+      "detail": "reply-runtime-guard-rejected",
+      "retryable": true,
+      "owner_action_required": false
+    },
+    {
+      "source": "gateway",
+      "detail": "gateway-core-unreachable",
+      "category": "core_or_gateway_failure",
+      "retryable": true,
+      "owner_action_required": false
+    },
+    {
+      "source": "gateway",
+      "detail": "gateway-core-invalid-response",
+      "category": "core_or_gateway_failure",
+      "retryable": true,
+      "owner_action_required": false
+    },
+    {
+      "source": "gateway",
+      "detail": "gateway-owner-rate-limited",
+      "category": "core_or_gateway_failure",
+      "retryable": true,
+      "owner_action_required": false
+    }
+  ]
+}

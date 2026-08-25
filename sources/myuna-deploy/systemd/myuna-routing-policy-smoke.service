@@ -1,0 +1,29 @@
+[Unit]
+Description=Myuna disabled staging routing policy smoke test
+Documentation=file:/srv/myuna/repos/deploy/docs/ADR-010-deepseek-persona-routing.md
+ConditionPathExists=/etc/myuna/capabilities/dev-v2.json
+
+[Service]
+Type=oneshot
+User=myuna
+Group=myuna
+WorkingDirectory=/srv/myuna/repos/core
+Environment=PYTHONPATH=/srv/myuna/repos/core/src
+ExecStart=/usr/bin/python3 /srv/myuna/repos/core/scripts/run_staging_router_smoke.py --capability-manifest /etc/myuna/capabilities/dev-v2.json --output /var/lib/myuna/dev/router-smoke/summary.json
+UMask=0077
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX
+ReadOnlyPaths=/etc/myuna/capabilities/dev-v2.json
+ReadWritePaths=/var/lib/myuna/dev/router-smoke

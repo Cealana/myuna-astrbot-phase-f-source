@@ -55,5 +55,5 @@ services:
 
 networks:
   telegram:
+    external: true
     name: myuna-astrbot-telegram-dev
-    driver: bridge

@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "policy_id": "authenticated-owner-media-candidate-v1",
+  "status": "inactive_candidate",
+  "subject": {
+    "channel_kinds": [
+      "astrbot_qq",
+      "astrbot_telegram"
+    ],
+    "conversation_kinds": [
+      "private"
+    ],
+    "authority_levels": [
+      "owner"
+    ]
+  },
+  "required_capability": "vision",
+  "maximum_age_seconds": 300,
+  "maximum_future_skew_seconds": 30,
+  "maximum_media_count": 4
+}

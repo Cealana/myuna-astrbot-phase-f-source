@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "manifest_id": "myuna-dev-capabilities-20260716-v4",
+  "environment": "dev",
+  "definition": {
+    "version": "v5",
+    "build_id": "2755db85ca7e-b1-dbc4b229-g9f993b18-a95b4a017-te2e33bb3",
+    "release_active": true
+  },
+  "service": {
+    "core_active": true,
+    "external_listener_enabled": false,
+    "response_scope": "loopback_dev_synthetic_memory"
+  },
+  "capabilities": {
+    "conversation": {
+      "enabled": true,
+      "scope": "authenticated loopback-only dev conversation testing",
+      "reason": "the immutable v5 dev loopback conversation gate remains approved"
+    },
+    "long_term_memory_read": {
+      "enabled": true,
+      "scope": "explicit opt-in reads from a checksum-bound fictional synthetic fixture only",
+      "reason": "the owner approved continuing with long-term memory connection and testing after the Core loopback test"
+    },
+    "long_term_memory_write": {
+      "enabled": false,
+      "scope": "none",
+      "reason": "no real or synthetic memory write is authorized"
+    },
+    "vision": {
+      "enabled": false,
+      "scope": "none",
+      "reason": "multimodal routing is reserved but not deployed"
+    },
+    "tools": {
+      "enabled": false,
+      "scope": "none",
+      "reason": "tool execution remains outside this gate"
+    },
+    "external_data": {
+      "enabled": false,
+      "scope": "none",
+      "reason": "no web or channel connector is attached"
+    },
+    "external_actions": {
+      "enabled": false,
+      "scope": "none",
+      "reason": "synthetic memory testing cannot create side effects"
+    },
+    "system_administration": {
+      "enabled": false,
+      "scope": "none",
+      "reason": "the model has no Windows, Linux, Minecraft, network, or database authority"
+    },
+    "qq_channel": {
+      "enabled": false,
+      "scope": "none",
+      "reason": "AstrBot remains disconnected"
+    }
+  },
+  "models": {
+    "default": {
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "thinking": "disabled"
+    },
+    "persona_escalation": {
+      "provider": "deepseek",
+      "model": "deepseek-v4-pro",
+      "thinking": "disabled"
+    }
+  },
+  "routing": {
+    "max_repair_attempts": 1,
+    "fast_failures_before_escalation": 2,
+    "pro_task_classes": [
+      "definition_change",
+      "canon_conflict",
+      "relationship_boundary",
+      "checklist_overload"
+    ],
+    "high_risk_uses_escalation": true
+  },
+  "authorizations": {
+    "release_activation": true,
+    "service_activation": true,
+    "real_memory": false,
+    "tools": false,
+    "external_network_listener": false
+  },
+  "source_adrs": [
+    "ADR-010-deepseek-persona-routing.md",
+    "ADR-011-checklist-overload-escalation.md",
+    "ADR-012-v5-loopback-dev-core.md",
+    "ADR-013-synthetic-memory-loopback.md"
+  ]
+}

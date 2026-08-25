@@ -1,0 +1,17 @@
+[Unit]
+Description=Myuna Telegram Owner media metadata authentication socket (inactive candidate)
+Documentation=file:@AUTH_RELEASE_ROOT@/docs/ADR-049-telegram-media-metadata-shadow-v1.md
+ConditionPathExists=/etc/myuna-telegram-gateway/owner-media-metadata-shadow-v1-enabled
+
+[Socket]
+ListenDatagram=/run/myuna-telegram-media-auth/shadow.sock
+Service=myuna-telegram-media-auth-shadow-v1.service
+SocketUser=myuna-gateway-telegram
+SocketGroup=myuna-gateway-telegram
+SocketMode=0600
+DirectoryMode=0750
+ReceiveBuffer=131072
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

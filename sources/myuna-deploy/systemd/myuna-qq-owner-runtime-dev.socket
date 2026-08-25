@@ -1,0 +1,17 @@
+[Unit]
+Description=Myuna verified owner QQ private runtime socket (dev)
+Documentation=file:/srv/myuna/repos/deploy/docs/ADR-020-owner-qq-private-runtime-v1.md
+ConditionPathExists=/etc/myuna-gateway/qq-owner-runtime-approved
+ConditionPathExists=/etc/myuna-gateway/qq-owner-runtime-v1.json
+
+[Socket]
+ListenStream=/run/myuna-gateway/qq-owner.sock
+SocketUser=root
+SocketGroup=myuna-gateway
+SocketMode=0660
+DirectoryMode=0750
+Accept=no
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

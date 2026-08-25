@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "error": "runtime_not_activated",
+      "core_code": "core_runtime_not_ready",
+      "category": "core_or_gateway_failure",
+      "detail": "core-runtime-not-ready",
+      "retryable": false,
+      "owner_action_required": true
+    },
+    {
+      "error": "provider_daily_budget_exceeded",
+      "core_code": "provider_daily_budget_exceeded",
+      "category": "provider_budget_or_auth_failure",
+      "detail": "provider-daily-budget-exceeded",
+      "retryable": false,
+      "owner_action_required": true
+    },
+    {
+      "error": "provider_budget_accounting_unavailable",
+      "core_code": "provider_budget_accounting_failed",
+      "category": "core_or_gateway_failure",
+      "detail": "provider-budget-accounting-failed",
+      "retryable": false,
+      "owner_action_required": true
+    },
+    {
+      "error": "provider_unavailable",
+      "provider_code": "transport_failure",
+      "category": "provider_transient_failure",
+      "detail": "provider-transport-failure",
+      "retryable": true,
+      "owner_action_required": false
+    },
+    {
+      "error": "provider_unavailable",
+      "provider_code": "authentication_failed",
+      "category": "provider_budget_or_auth_failure",
+      "detail": "provider-authentication-failed",
+      "retryable": false,
+      "owner_action_required": true
+    },
+    {
+      "error": "provider_unavailable",
+      "provider_code": "invalid_response",
+      "category": "provider_transient_failure",
+      "detail": "provider-invalid-response",
+      "retryable": true,
+      "legacy_retryable": false,
+      "owner_action_required": false
+    },
+    {
+      "error": "reply_failed_runtime_guard",
+      "core_code": "reply_runtime_guard_rejected",
+      "category": "reply_contract_rejected",
+      "detail": "reply-runtime-guard-rejected",
+      "retryable": true,
+      "owner_action_required": false
+    },
+    {
+      "error": "runtime_fail_closed",
+      "core_code": "core_runtime_fail_closed",
+      "category": "core_or_gateway_failure",
+      "detail": "core-runtime-fail-closed",
+      "retryable": true,
+      "owner_action_required": false
+    }
+  ]
+}

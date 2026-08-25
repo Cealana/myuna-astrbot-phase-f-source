@@ -1,0 +1,97 @@
+{
+  "authorizations": {
+    "external_network_listener": false,
+    "real_memory": true,
+    "release_activation": true,
+    "service_activation": true,
+    "tools": false
+  },
+  "capabilities": {
+    "conversation": {
+      "enabled": true,
+      "reason": "the existing verified Owner-private QQ binding remains active",
+      "scope": "verified owner private QQ text conversation"
+    },
+    "external_actions": {
+      "enabled": false,
+      "reason": "QQ conversation cannot create external side effects",
+      "scope": "none"
+    },
+    "external_data": {
+      "enabled": false,
+      "reason": "the local model service is offline and no external connector is attached",
+      "scope": "none"
+    },
+    "long_term_memory_read": {
+      "enabled": true,
+      "reason": "P07 Owner-approved Profile baseline and bounded read-only retrieval",
+      "scope": "verified owner private text; owner profile baseline; read-only bounded sections"
+    },
+    "long_term_memory_write": {
+      "enabled": false,
+      "reason": "channel writes and model writes remain outside P07 activation",
+      "scope": "none"
+    },
+    "qq_channel": {
+      "enabled": true,
+      "reason": "the existing owner binding remains active and verified",
+      "scope": "verified owner private text only"
+    },
+    "system_administration": {
+      "enabled": false,
+      "reason": "the model has no host or service authority",
+      "scope": "none"
+    },
+    "tools": {
+      "enabled": false,
+      "reason": "tool execution remains outside the QQ conversation gate",
+      "scope": "none"
+    },
+    "vision": {
+      "enabled": false,
+      "reason": "this P07 route accepts plain text only",
+      "scope": "none"
+    }
+  },
+  "definition": {
+    "build_id": "v6ev2-1c344e35df28-o63656be5-cfcf597f6-g311561ea-qa12-qqtg1-r3",
+    "release_active": true,
+    "version": "v6"
+  },
+  "environment": "dev",
+  "manifest_id": "myuna-dev-capabilities-20260801-p07-local-profile-v1",
+  "models": {
+    "default": {
+      "model": "myuna-local-owner-v1",
+      "provider": "local",
+      "thinking": "disabled"
+    },
+    "persona_escalation": {
+      "model": "myuna-local-owner-v1",
+      "provider": "local",
+      "thinking": "disabled"
+    }
+  },
+  "routing": {
+    "fast_failures_before_escalation": 2,
+    "high_risk_uses_escalation": true,
+    "max_repair_attempts": 1,
+    "pro_task_classes": [
+      "definition_change",
+      "canon_conflict",
+      "relationship_boundary",
+      "checklist_overload"
+    ]
+  },
+  "schema_version": 1,
+  "service": {
+    "core_active": true,
+    "external_listener_enabled": false,
+    "response_scope": "owner_private_dev_profile_read_v1"
+  },
+  "source_adrs": [
+    "ADR-052-owner-profile-baseline-readonly-v1.md",
+    "ADR-053-owner-profile-write-lifecycle-v1.md",
+    "ADR-055-owner-profile-local-provider-boundary-v1.md"
+  ]
+}

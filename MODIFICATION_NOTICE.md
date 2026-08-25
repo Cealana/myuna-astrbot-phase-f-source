@@ -1,15 +1,9 @@
 # Modification Notice
 
-Modification date: 2026-08-21.
+Modification date: 2026-08-26.
 
-Myuna modified the reviewed AstrBot response pipeline to produce one immutable, content-free send outcome after the existing response-send operation. The Telegram gateway binds that outcome to an opaque signed trace and permits delivery/factual close only after an exact success outcome. The marker deliberately excludes message text, user/chat/channel identity, reply chains, URLs, provider bodies, credentials, exceptions, and other free text.
+Myuna retains the reviewed AstrBot response-pipeline and corresponding-source-offer changes described by the prior publication. The accepted AstrBot image, base, config, manifest, and canonical OCI archive identities are unchanged.
 
-The image overlay changes only:
+This refresh adds the reviewed owner-runtime import-closure packaging change. The Telegram-imported memory protocol and owner-profile write-intent surface remain provider-independent. Provider invocation stays in one separate Core provider-facing module with zero active Telegram production callers. The Deploy runtime builder derives required Core roots from the selected overlays, vendors the complete local closure, excludes concrete provider modules, and verifies the actual gateway import under the service identity with runtime-only `PYTHONPATH`, bytecode disabled, and network denied.
 
-- `sources/astrbot/astrbot/core/pipeline/respond/stage.py`
-
-The reviewed AstrBot Dockerfile pins the official base image and overlays that exact file. Related Myuna Core and Deploy boundary source and generated-synthetic tests are included under their respective source directories.
-
-The reviewed Myuna Deploy Telegram gateway additionally appends one fixed, content-free no-charge corresponding-source offer to every plugin-owned emitted plain response through its existing result-construction seam. It introduces no additional Telegram send, provider call, endpoint, callback, database, store, or service route. Duplicate and no-result paths remain no-send.
-
-These modifications and the included corresponding source are offered under AGPL-3.0-or-later. Existing upstream notices remain intact.
+The source snapshots and runtime manifest identify every changed source generation. No provider credential, private data, database row, message, log, or runtime secret is included.

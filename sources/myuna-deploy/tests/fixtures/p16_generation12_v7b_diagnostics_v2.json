@@ -1,0 +1,107 @@
+{
+  "schema": "myuna.p16-generation12-v7b-diagnostics.v2",
+  "status": "EXACT_MAIN_IDENTITIES_RECONCILED_SOURCE_CANDIDATE",
+  "authoritative": false,
+  "predecessor_candidate": "b6d0cef33d4bec46a2d9cc75d70e7cf45f61eaa4",
+  "predecessor_fixture_sha256": "888cfe487315bf96657f7e0b60b346ac0f7ec83060e774ffc812596ef8f88357",
+  "semantic_projection_sha256": "18c42a102993bde1a07263946689cfab7ec21678e9e34b6e24e55c0b2a6d888a",
+  "public_taxonomy_schema": "myuna.user-visible-fault.v1",
+  "dependencies": [
+    {
+      "id": "generation12_combined_interface",
+      "status": "EXACT_COMMITTED_ANCESTOR_ON_CURRENT_MAINS",
+      "source_core_commit": "8529ef1f5f24ded15824bdbf0c6f826b0539b8d4",
+      "source_deploy_commit": "2819d5cf8fd979ffa1c0bf26b0eaa7411663557b",
+      "current_core_head": "527fc1aed963fd3627791e6fafeb8e14bc5bc882",
+      "current_core_tree": "310dca2e37f3a16906c8c7758b364ad1f4881bb8",
+      "current_deploy_head": "2ca38e1c8607a5cc5bd7e474a4ffb6ebac574eac",
+      "current_deploy_tree": "25a73be4960b0b7b15bdf59198614b1e98a4bd6e",
+      "schema": "myuna.p08-p07-combined-release-set.v1",
+      "generation": 12
+    },
+    {
+      "id": "v7_phase_b_affinity_interface",
+      "status": "EXACT_COMMITTED_MAINLINE",
+      "source_main_commit": "31250bbd015c07ddefaca889d8c56ddf28971a12",
+      "source_main_tree": "e23d1259c233a6ab88cfd9b6c30c7463cf383e03",
+      "current_core_head": "527fc1aed963fd3627791e6fafeb8e14bc5bc882",
+      "schema": "myuna.structured-affinity.v1",
+      "capability_id": "p09-v7-structured-affinity-v1",
+      "capability_digest": "bc28be2f125bb7099859dd366d54d59f48053db670ad2d841482c15fa50d5096"
+    },
+    {
+      "id": "p15_relevance_retention_interface",
+      "status": "EXACT_COMMITTED_MAINLINE",
+      "core_head": "527fc1aed963fd3627791e6fafeb8e14bc5bc882",
+      "core_tree": "310dca2e37f3a16906c8c7758b364ad1f4881bb8",
+      "deploy_head": "2ca38e1c8607a5cc5bd7e474a4ffb6ebac574eac",
+      "deploy_tree": "25a73be4960b0b7b15bdf59198614b1e98a4bd6e",
+      "core_contract_schema": "myuna.p15-cross-source-orchestration-contract.v1",
+      "input_schema": "myuna.p15-input.v1",
+      "result_schema": "myuna.p15-selection-result.v1",
+      "deploy_contract_schema": "myuna.p15-deploy-contract.v1",
+      "affinity_interface_schema": "myuna.affinity-relevance-port.v1",
+      "deploy_contract_digest": "17c1eaa53175f1f225218dd0abe4a286cde93289a1feca7c0241b6a0560f8a17"
+    }
+  ],
+  "policies": {
+    "new_public_codes": "forbidden",
+    "unknown_without_incident_evidence": "no_projection",
+    "incident_ref": "requires_actual_content_free_incident_evidence",
+    "continuity_reset": "normal_transition_not_fault",
+    "complete_rollback": "recovery_not_new_fault",
+    "partial_rollback": "hard_stop_without_fabricated_incident",
+    "fail_closed": true
+  },
+  "generation12": {
+    "schemas": {
+      "release_set": "myuna.p08-p07-combined-release-set.v1",
+      "activation_plan": "myuna.p08-p07-generation12-activation-plan.v1",
+      "journal": "myuna.p08-p07-generation12-journal.v1",
+      "receipt": "myuna.p08-p07-generation12-receipt.v1"
+    },
+    "apply_order": ["p07", "telegram_plugin", "p08"],
+    "rollback_order": ["p08", "telegram_plugin", "p07"],
+    "exact_phases": ["preflight", "apply", "combined_accept", "rollback"],
+    "failure_cases": [
+      {"id":"g12_preflight_rejected","phase":"preflight","component":"combined","typed_gate_policy":"preserve_safe_typed_else_cli_fallback","fallback_gate":"combined_activation_rejected","rollback_entered":false,"public_projection_status":"UNBOUND_SOURCE_GATE_FAIL_CLOSED","public_code":null,"incident_ref":null,"incident_ref_status":"unavailable"},
+      {"id":"g12_p07_apply_rejected","phase":"apply","component":"p07","fallback_gate":"p07_activation_rejected","complete_rollback_gate":"combined_activation_rolled_back","public_projection_status":"UNBOUND_SOURCE_GATE_FAIL_CLOSED","public_code":null,"incident_ref":null,"incident_ref_status":"unavailable"},
+      {"id":"g12_telegram_plugin_apply_rejected","phase":"apply","component":"telegram_plugin","fallback_gate":"telegram_plugin_activation_rejected","complete_rollback_gate":"combined_activation_rolled_back","public_projection_status":"UNBOUND_SOURCE_GATE_FAIL_CLOSED","public_code":null,"incident_ref":null,"incident_ref_status":"unavailable"},
+      {"id":"g12_p08_apply_rejected","phase":"apply","component":"p08","fallback_gate":"p08_activation_rejected","complete_rollback_gate":"combined_activation_rolled_back","public_projection_status":"UNBOUND_SOURCE_GATE_FAIL_CLOSED","public_code":null,"incident_ref":null,"incident_ref_status":"unavailable"},
+      {"id":"g12_combined_accept_rejected","phase":"combined_accept","component":"combined","fallback_gate":"p08_activation_rejected","fallback_basis":"last_attempted_component","complete_rollback_gate":"combined_activation_rolled_back","public_projection_status":"UNBOUND_SOURCE_GATE_FAIL_CLOSED","public_code":null,"incident_ref":null,"incident_ref_status":"unavailable"},
+      {"id":"g12_p08_rollback_rejected","phase":"rollback","component":"p08","fallback_gate":"p08_rollback_rejected","hard_stop_gate":"combined_functional_rollback_failed","remaining_rollbacks_continue":true,"public_projection_status":"UNBOUND_SOURCE_GATE_FAIL_CLOSED","public_code":null,"incident_ref":null,"incident_ref_status":"unavailable"},
+      {"id":"g12_telegram_plugin_rollback_rejected","phase":"rollback","component":"telegram_plugin","fallback_gate":"telegram_plugin_rollback_rejected","hard_stop_gate":"combined_functional_rollback_failed","remaining_rollbacks_continue":true,"public_projection_status":"UNBOUND_SOURCE_GATE_FAIL_CLOSED","public_code":null,"incident_ref":null,"incident_ref_status":"unavailable"},
+      {"id":"g12_p07_rollback_rejected","phase":"rollback","component":"p07","fallback_gate":"p07_rollback_rejected","hard_stop_gate":"combined_functional_rollback_failed","remaining_rollbacks_continue":true,"public_projection_status":"UNBOUND_SOURCE_GATE_FAIL_CLOSED","public_code":null,"incident_ref":null,"incident_ref_status":"unavailable"},
+      {"id":"g12_rollback_observation_rejected","phase":"rollback","component":"combined","fallback_gate":"functional_rollback_observation_rejected","hard_stop_gate":"combined_functional_rollback_failed","public_projection_status":"UNBOUND_SOURCE_GATE_FAIL_CLOSED","public_code":null,"incident_ref":null,"incident_ref_status":"unavailable"},
+      {"id":"g12_functional_prestate_mismatch","phase":"rollback","component":"combined","fallback_gate":"functional_prestate_mismatch","hard_stop_gate":"combined_functional_rollback_failed","public_projection_status":"UNBOUND_SOURCE_GATE_FAIL_CLOSED","public_code":null,"incident_ref":null,"incident_ref_status":"unavailable"}
+    ],
+    "invariants": [
+      {"id":"g12_fresh_external_context_continuity_reset","fault":false,"public_code":null,"incident_ref":null,"incident_ref_status":"unavailable","conclusion":"normal_transition"},
+      {"id":"g12_reverse_order_rollback_complete","fault":false,"public_code":null,"incident_ref":null,"incident_ref_status":"unavailable","order":["p08","telegram_plugin","p07"],"conclusion":"rollback_complete"},
+      {"id":"g12_partial_rollback_hard_stop","fault":true,"hard_stop":true,"typed_gate":"combined_functional_rollback_failed","public_projection_status":"UNBOUND_SOURCE_GATE_FAIL_CLOSED","public_code":null,"incident_ref":null,"incident_ref_status":"unavailable","conclusion":"operator_stop_required"}
+    ]
+  },
+  "v7_phase_b": {
+    "schema": "myuna.structured-affinity.v1",
+    "diagnostic_namespace": "structured_affinity_v1",
+    "diagnostic_codes": ["affinity_abstained","affinity_dependency_unavailable","affinity_persistence_inactive","affinity_transition_rejected","affinity_update_applied"],
+    "abstention_reasons": ["insufficient_evidence","conflicting_evidence","dependency_unavailable","scope_not_authorized","schema_unavailable"],
+    "cases": [
+      {"id":"v7b_affinity_capability_absent","state":"absent","fault":false,"typed_code":null,"public_projection_status":"NO_TYPED_EVENT","public_code":null,"incident_ref":null,"incident_ref_status":"unavailable","conclusion":"capability_not_instantiated"},
+      {"id":"v7b_affinity_capability_unavailable","state":"unavailable","fault":null,"typed_namespace":"structured_affinity_v1","typed_code":"affinity_dependency_unavailable","public_projection_status":"EXACT_TYPED_EVENT_UNMAPPED_FAIL_CLOSED","public_code":null,"incident_ref":null,"incident_ref_status":"unavailable","conclusion":"public_classification_deferred"},
+      {"id":"v7b_affinity_capability_abstained","state":"abstained","fault":false,"typed_namespace":"structured_affinity_v1","typed_code":"affinity_abstained","public_projection_status":"NON_FAULT_NO_PROJECTION","public_code":null,"incident_ref":null,"incident_ref_status":"unavailable","conclusion":"intentional_abstention_not_fault"},
+      {"id":"v7b_trusted_time_dependency_unavailable","state":"dependency_unavailable","fault":true,"typed_namespace":"trusted_time","typed_code":"trusted_time_unavailable","conditional_public_code":"MYU-TIME-01","public_projection_status":"ONLY_IF_ACTUAL_EXACT_TYPED_EVIDENCE","public_code":null,"incident_ref":null,"incident_ref_status":"unavailable"},
+      {"id":"v7b_temporal_dependency_unavailable","state":"dependency_unavailable","fault":true,"typed_namespace":"active_temporal_context","typed_code":"database_unavailable","conditional_public_code":"MYU-TEMPORAL-01","public_projection_status":"ONLY_IF_ACTUAL_EXACT_TYPED_EVIDENCE","public_code":null,"incident_ref":null,"incident_ref_status":"unavailable"}
+    ]
+  },
+  "p15_relevance_retention": {
+    "selection_statuses": ["select", "clarify", "abstain"],
+    "cases": [
+      {"id":"p15_authorized_continuity_reset","status":"select","normal_transition":true,"fault":false,"public_projection_status":"NON_FAULT_NO_PROJECTION","public_code":null,"incident_ref":null,"incident_ref_status":"unavailable"},
+      {"id":"p15_affinity_capability_unavailable","status":"select","decision_reason":"drop_capability_unavailable","fault":false,"public_projection_status":"RETENTION_DECISION_NO_PROJECTION","public_code":null,"incident_ref":null,"incident_ref_status":"unavailable"},
+      {"id":"p15_required_provenance_abstain","status":"abstain","decision_reason":"abstain_required_provenance","fault":false,"public_projection_status":"NON_FAULT_ABSTENTION_NO_PROJECTION","public_code":null,"incident_ref":null,"incident_ref_status":"unavailable"},
+      {"id":"p15_budget_retention_drop","status":"select","decision_reason":"drop_budget","fault":false,"public_projection_status":"RETENTION_DECISION_NO_PROJECTION","public_code":null,"incident_ref":null,"incident_ref_status":"unavailable"},
+      {"id":"p15_duplicate_retention_drop","status":"select","decision_reason":"drop_duplicate","fault":false,"public_projection_status":"RETENTION_DECISION_NO_PROJECTION","public_code":null,"incident_ref":null,"incident_ref_status":"unavailable"}
+    ]
+  }
+}

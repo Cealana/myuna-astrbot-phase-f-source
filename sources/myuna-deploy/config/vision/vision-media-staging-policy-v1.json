@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "policy_id": "vision-media-staging-candidate-v1",
+  "status": "inactive_candidate",
+  "storage_scope": "private-ephemeral-media-v1",
+  "maximum_ttl_seconds": 300,
+  "maximum_reads_per_media": 1,
+  "filesystem_guards": {
+    "require_private_owner": true,
+    "require_regular_file": true,
+    "reject_symlinks": true
+  },
+  "side_effects": {
+    "allow_persistent_copy": false,
+    "allow_remote_fetch": false,
+    "secure_disposal_required": true
+  }
+}

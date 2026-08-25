@@ -1,0 +1,44 @@
+[Unit]
+Description=Myuna verified owner QQ private runtime gateway (dev)
+Documentation=file:/srv/myuna/repos/deploy/docs/ADR-020-owner-qq-private-runtime-v1.md
+Requires=postgresql.service myuna-core@qq.service
+After=postgresql.service myuna-core@qq.service
+ConditionPathExists=/etc/myuna-gateway/qq-owner-runtime-approved
+ConditionPathExists=/etc/myuna-gateway/qq-owner-runtime-v1.json
+
+[Service]
+Type=simple
+User=myuna-gateway
+Group=myuna-gateway
+ExecStart=/usr/bin/python3 /usr/local/libexec/myuna-gateway/qq_owner_runtime_gateway.py
+Environment=PYTHONPATH=/usr/local/lib/myuna-gateway/core-v1
+LoadCredential=channel-signing:/etc/myuna-gateway/secrets/channel-signing-v1
+LoadCredential=identity-pepper:/etc/myuna-gateway/secrets/identity-pepper-v1
+LoadCredential=core-token:/etc/myuna-gateway/secrets/qq-owner-core-token
+UMask=0077
+Restart=on-failure
+RestartSec=5s
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET
+IPAddressDeny=any
+IPAddressAllow=127.0.0.1/32
+ReadWritePaths=/var/lib/myuna-gateway /var/log/myuna-gateway
+
+[Install]
+WantedBy=sockets.target

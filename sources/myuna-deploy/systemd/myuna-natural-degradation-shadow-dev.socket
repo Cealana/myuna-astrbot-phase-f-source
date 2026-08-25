@@ -1,0 +1,17 @@
+[Unit]
+Description=Myuna Natural Degradation metadata-only Shadow datagram socket (dev candidate)
+Documentation=file:/srv/myuna/repos/deploy/docs/ADR-029-natural-degradation-r2c-metadata-shadow.md
+ConditionPathExists=/etc/myuna-gateway/qq-owner-natural-degradation-shadow-v1-enabled
+
+[Socket]
+ListenDatagram=/run/myuna-natural-degradation-shadow-dev/shadow.sock
+Service=myuna-natural-degradation-shadow-dev.service
+SocketUser=myuna_degradation_shadow
+SocketGroup=myuna-gateway
+SocketMode=0620
+DirectoryMode=0755
+ReceiveBuffer=131072
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

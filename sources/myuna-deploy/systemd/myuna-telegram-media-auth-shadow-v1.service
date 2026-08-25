@@ -1,0 +1,40 @@
+[Unit]
+Description=Myuna Telegram Owner media metadata authentication worker (inactive candidate)
+Documentation=file:@AUTH_RELEASE_ROOT@/docs/ADR-049-telegram-media-metadata-shadow-v1.md
+Requires=postgresql.service myuna-telegram-media-auth-shadow-v1.socket
+After=postgresql.service myuna-telegram-media-auth-shadow-v1.socket
+ConditionPathExists=/etc/myuna-telegram-gateway/owner-media-metadata-shadow-v1-enabled
+
+[Service]
+Type=simple
+User=myuna-gateway-telegram
+Group=myuna-gateway-telegram
+ExecStart=/usr/bin/python3 @AUTH_RELEASE_ROOT@/scripts/telegram_media_metadata_shadow_gateway.py
+Environment=PYTHONPATH=@CORE_RELEASE_ROOT@/src:@AUTH_RELEASE_ROOT@
+LoadCredential=channel-signing:/etc/myuna-telegram-gateway/secrets/channel-signing-v1
+LoadCredential=identity-pepper:/etc/myuna-telegram-gateway/secrets/identity-pepper-v1
+UMask=0077
+Restart=on-failure
+RestartSec=5s
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM

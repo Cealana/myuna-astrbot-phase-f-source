@@ -1,0 +1,27 @@
+[Unit]
+Description=Myuna active temporal context private worker v1
+Requires=myuna-active-temporal-context-v1.socket
+After=myuna-active-temporal-context-v1.socket
+
+[Service]
+Type=exec
+SetLoginEnvironment=no
+EnvironmentFile=/etc/myuna-active-temporal-context-v1/selector.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/setpriv --reuid=976 --regid=976 --clear-groups --no-new-privs /usr/bin/python3 -B -P -S -m p08_temporal_service_v1
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+ReadWritePaths=/var/lib/myuna-active-temporal-context-v1
+UMask=0077
+Restart=on-failure
+RestartSec=2s
+
+[Install]
+WantedBy=multi-user.target

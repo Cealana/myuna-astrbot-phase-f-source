@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "plan_id": "owner-memory-retrieval-v2-r1-formal-repository-application",
+  "status": "awaiting_explicit_approval_not_applied",
+  "plan_digest_algorithm": "sha256_canonical_json_without_plan_digest",
+  "plan_digest": "16833641c6d0ed2768edacec942c70b0e967ec684d926cbc3d6d38aa8398c3aa",
+  "baseline": {
+    "formal_repository": "/srv/myuna/repos/core",
+    "expected_branch": "main",
+    "expected_head": "9f84ae1039496cc060e21d01766e6cdf5bc47151",
+    "expected_clean": true,
+    "online_v1_must_remain_unchanged": true
+  },
+  "authorized_changes": [
+    "add isolated owner retrieval v2 package under the formal Core repository",
+    "add v2 unit, protocol, Core adapter and deterministic Golden tests",
+    "add v2 architecture, security and migration documentation",
+    "run the full formal Core test suite",
+    "create one local Git commit containing only the reviewed v2 repository files"
+  ],
+  "required_checks": [
+    "baseline branch, head and clean state match this plan",
+    "candidate manifest verifies before copying",
+    "all candidate tests pass before formal application",
+    "formal repository diff contains only the approved v2 files",
+    "full formal Core test suite passes",
+    "online QQ Core and v1 memory services remain at the same process and restart state"
+  ],
+  "explicitly_not_authorized": [
+    "install files under /opt/myuna",
+    "create or modify systemd units, sockets or runtime directories",
+    "modify /etc/myuna/qq.env or any capability binding",
+    "restart or reload QQ Core, AstrBot, NapCat, PostgreSQL, WSL or Windows",
+    "activate v2 for QQ or any other channel",
+    "modify database roles, views, records, pg_hba or pg_ident",
+    "read restricted memory",
+    "write, delete, merge or reclassify memory",
+    "call a local or cloud model",
+    "change network, firewall, credentials, keys or ports",
+    "modify OpenClaw, Turn Manager, model routing, tools or Minecraft"
+  ],
+  "rollback": [
+    "if preconditions fail, make no changes",
+    "if tests fail before commit, remove only the newly applied v2 files and restore edited files from their pre-application copies",
+    "do not use git reset --hard or destructive history rewriting",
+    "verify the formal repository returns to its original clean head"
+  ],
+  "future_stages_requiring_separate_approval": [
+    "R2 parallel v2 installation while disabled and inactive",
+    "R3 atomic Owner QQ binding switch with health probes and rollback"
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "policy_id": "owner-private-vision-candidate-v1",
+  "status": "inactive_candidate",
+  "limits": {
+    "allowed_mime_types": [
+      "image/jpeg",
+      "image/png",
+      "image/webp"
+    ],
+    "max_media_count": 4,
+    "max_bytes_per_media": 8388608,
+    "max_total_bytes": 16777216,
+    "max_dimension": 8192
+  },
+  "allowed_analysis_modes": [
+    "describe",
+    "question_answer",
+    "ocr_assist"
+  ],
+  "provider_id": "vision-provider-registry",
+  "model_registry_key": "vision-default-candidate",
+  "side_effects": {
+    "allow_remote_url_fetch": false,
+    "allow_memory_write": false,
+    "allow_tools": false,
+    "allow_external_actions": false
+  }
+}

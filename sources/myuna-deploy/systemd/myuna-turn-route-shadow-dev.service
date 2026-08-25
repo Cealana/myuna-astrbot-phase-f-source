@@ -1,0 +1,45 @@
+[Unit]
+Description=Myuna Turn/Route metadata-only Shadow worker (dev candidate)
+Documentation=file:/srv/myuna/repos/deploy/docs/ADR-027-turn-route-metadata-shadow-v1.md
+Requires=myuna-turn-route-shadow-dev.socket
+After=myuna-turn-route-shadow-dev.socket
+ConditionPathExists=/etc/myuna-gateway/qq-owner-turn-route-shadow-v1-enabled
+ConditionPathExists=/etc/myuna-shadow/turn-route-shadow-v1.json
+
+[Service]
+Type=simple
+User=myuna_shadow_classifier
+Group=myuna_shadow_classifier
+Environment=PYTHONPATH=/opt/myuna/turn-route-shadow-v1
+ExecStart=/usr/bin/python3 -m turn_route_shadow.worker --config /etc/myuna-shadow/turn-route-shadow-v1.json --trace /var/log/myuna/turn-route-shadow/trace.jsonl
+Restart=on-failure
+RestartSec=2s
+LogsDirectory=myuna/turn-route-shadow
+LogsDirectoryMode=0700
+UMask=0077
+
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX AF_INET
+IPAddressDeny=any
+IPAddressAllow=127.0.0.1/32
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+ProcSubset=pid
+ProtectProc=invisible
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM

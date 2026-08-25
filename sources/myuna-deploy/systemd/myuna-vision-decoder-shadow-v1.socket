@@ -1,0 +1,17 @@
+[Unit]
+Description=Myuna isolated vision decoder socket (inactive candidate)
+Documentation=file:/opt/myuna/vision-decoder-worker/releases/@WORKER_RELEASE@/docs/ADR-047-vision-decoder-worker-v1.md
+ConditionPathExists=/etc/myuna-gateway/vision-decoder-shadow-v1-enabled
+
+[Socket]
+ListenStream=/run/myuna-vision-decoder/decoder.sock
+Service=myuna-vision-decoder-shadow-v1.service
+SocketUser=myuna_media_decoder
+SocketGroup=myuna-gateway
+SocketMode=0620
+DirectoryMode=0755
+Backlog=8
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

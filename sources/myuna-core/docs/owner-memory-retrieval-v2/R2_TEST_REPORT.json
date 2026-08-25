@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "status": "passed_isolated_not_applied_not_installed_not_active",
+  "candidate_tests": {
+    "passed": 10,
+    "failed": 0
+  },
+  "direct_safe_view_probe": {
+    "status": "passed",
+    "evaluated_as": "myuna_memory_runtime",
+    "safe_record_count": 12,
+    "hit_ids": [
+      "M001"
+    ],
+    "query_text_printed": false,
+    "memory_text_printed": false,
+    "restricted_included": false,
+    "memory_write_performed": false,
+    "model_called": false
+  },
+  "compileall": "passed",
+  "system_install_performed": false,
+  "systemd_reload_performed": false,
+  "v2_service_started": false,
+  "online_runtime_modified": false
+}

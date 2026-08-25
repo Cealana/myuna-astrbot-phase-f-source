@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "gateway_response_schema": "myuna.gateway-response.v2",
+  "safe_degradation_schema": "myuna.safe-degradation.v1",
+  "canonical_replies": {
+    "memory_no_evidence": "我现在没有找到能确认这件事的记录，所以不能装作记得",
+    "reply_contract_rejected": "刚才那句话没有通过回复检查，我没有把不可靠的内容继续发出来。你可以换个说法再问我一次",
+    "provider_transient_failure": "我刚才没能正常完成这次回复。稍后再试一次就好",
+    "provider_budget_or_auth_failure": "我现在没能使用对话模型，这不是你说错了什么，需要先检查服务额度或配置",
+    "core_or_gateway_failure": "我这边的对话服务现在不太正常，这次没能继续处理，需要先恢复服务",
+    "memory_service_failure": "我刚才没能读取记忆服务，所以不能把这次情况说成‘没有相关记忆’。我只能先根据眼前的对话回答",
+    "onebot_or_napcat_offline": "QQ 连接现在不在线，没法从同一个 QQ 会话继续发送，需要先恢复登录",
+    "host_or_network_unreachable": "服务器或网络现在不可达，同一台机器里的服务没法自行恢复通信",
+    "scheduled_notification_unavailable": "我现在还不能设置定时任务，也不能在你不发消息时主动从 QQ 提醒你。你可以先设一个手机闹钟，到时再来找我就好",
+    "memory_write_unavailable": "我现在只能读取已经接入的记忆，还不能把新内容写进去。你可以先记在备忘录里，下次把记录发给我，我可以帮你整理",
+    "external_data_unavailable": "我现在不能查询实时外部数据，所以不能替你确认最新结果",
+    "vision_unavailable": "我现在还不能读取图片里的内容",
+    "external_action_unavailable": "我现在没有外部操作权限，不能直接替你执行这件事。你完成后再告诉我就好"
+  },
+  "core_unreachable_projection": {
+    "schema": "myuna.safe-degradation.v1",
+    "status": "degraded",
+    "category": "core_or_gateway_failure",
+    "retryable": true,
+    "owner_action_required": false,
+    "safe_detail_code": "gateway-core-unreachable",
+    "recovery_state": "active",
+    "fingerprint": "core_or_gateway_failure:gateway:gateway-core-unreachable",
+    "reply": "我这边的对话服务现在不太正常，这次没能继续处理，需要先恢复服务"
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "profile_id": "effective-v6-owner-private-candidate-v1",
+  "environment": "dev",
+  "state": "inactive_candidate",
+  "components": {
+    "core_release": {
+      "component_id": "core-release-61b5f554",
+      "source_kind": "immutable_release",
+      "source_reference": "/srv/myuna/releases/core/61b5f55436503cf6a4090083e070388853d3a702cb6d6760afb967a2142a0b23",
+      "content_sha256": "61b5f55436503cf6a4090083e070388853d3a702cb6d6760afb967a2142a0b23"
+    },
+    "definition_release": {
+      "component_id": "definition-v6ev2-1c344e35df28",
+      "source_kind": "immutable_release",
+      "source_reference": "/srv/myuna/repos/definition/releases/v6/v6ev2-1c344e35df28-o63656be5-cfcf597f6-g311561ea-qa12-qqtg1-r3/evidence/release-files.sha256",
+      "content_sha256": "2dab49f29c38a69100e1a5d3dca268f6de71a046f0472b4eed1ea4dcaee136bd"
+    },
+    "channel_capability_profile": {
+      "component_id": "owner-private-text-readonly-memory-v2",
+      "source_kind": "repository_file",
+      "source_reference": "/srv/myuna/repos/deploy/config/capabilities/owner-private-channel-neutral-v1.json",
+      "content_sha256": "f5d81022797afb8c582921bcba1579e49498afb062c0c24ffe5c272ccda6bdf2"
+    },
+    "memory_adapter": {
+      "component_id": "owner-memory-readonly-v2",
+      "source_kind": "repository_file",
+      "source_reference": "/srv/myuna/repos/core/src/myuna_core/memory/owner_readonly_v2.py",
+      "content_sha256": "edb684b4ec21a56cb99c57089e60b18b6d46f332b5587b323c058744f6a58b4d"
+    },
+    "reply_contract": {
+      "component_id": "effective-v6-reply-contract-provisional",
+      "source_kind": "repository_file",
+      "source_reference": "/srv/myuna/repos/core/src/myuna_core/conversation.py",
+      "content_sha256": "b8808ab445a14f7afd2be001a64fe832b1f55b191a9e0acc924cfa88cd22b357"
+    },
+    "provider_policy": {
+      "component_id": "deepseek-pro-first-policy-v1",
+      "source_kind": "repository_file",
+      "source_reference": "/srv/myuna/repos/core/src/myuna_core/providers/policy.py",
+      "content_sha256": "5e7571588dba6df6657424ded3f1f986fa91515cdba155ac10d5ff953456bbd7"
+    },
+    "prompt_budget": {
+      "component_id": "prompt-budget-v6-v7-initial",
+      "source_kind": "repository_file",
+      "source_reference": "/srv/myuna/repos/deploy/config/prompt-budget-profiles-v1.json",
+      "content_sha256": "5c738cad068d8ec251fe56c025d35363e8a894d43a768a4671f721f693e23c5d"
+    }
+  },
+  "shadow_observers": [
+    {
+      "component_id": "natural-degradation-visibility-empty",
+      "source_kind": "repository_file",
+      "source_reference": "/srv/myuna/repos/deploy/config/natural-degradation-visibility-empty.json",
+      "content_sha256": "06776e861f99750f8c04822c065bbd8f56ae3a36a45b773eaccf185883beac1c"
+    }
+  ],
+  "activation": {
+    "automatic": false,
+    "selected": false,
+    "installed": false,
+    "requires_new_plan_digest": true,
+    "requires_live_preflight": true
+  }
+}

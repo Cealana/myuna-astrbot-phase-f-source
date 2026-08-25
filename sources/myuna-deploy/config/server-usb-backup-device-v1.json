@@ -1,0 +1,9 @@
+{
+  "schema": "myuna.server-backup-device.v1",
+  "label": "Server BU",
+  "filesystem": "exFAT",
+  "serial": "AA00000000000489",
+  "disk_size": 256641603584,
+  "purpose": "Myuna server encrypted backup target",
+  "contains_secrets": false
+}

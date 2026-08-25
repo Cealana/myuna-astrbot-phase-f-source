@@ -1,0 +1,20 @@
+[Unit]
+Description=Myuna Owner Profile Owner-confirmed write v1 local socket
+Wants=systemd-tmpfiles-setup.service
+After=systemd-tmpfiles-setup.service
+
+[Socket]
+ListenStream=/run/myuna-owner-profile-write-v1/profile-write.sock
+SocketUser=myuna_owner_profile
+SocketGroup=myuna
+SocketMode=0660
+DirectoryMode=0750
+RemoveOnStop=true
+Service=myuna-owner-profile-write-v1.service
+MaxConnections=2
+TriggerLimitIntervalSec=60s
+TriggerLimitBurst=6
+
+[Install]
+WantedBy=sockets.target
+

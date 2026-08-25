@@ -1,0 +1,13 @@
+[Unit]
+Description=Myuna active temporal context private socket v1
+
+[Socket]
+ListenStream=/run/myuna-active-temporal-context-v1/temporal.sock
+SocketUser=976
+SocketGroup=982
+SocketMode=0660
+RemoveOnStop=yes
+Service=myuna-active-temporal-context-v1.service
+
+[Install]
+WantedBy=sockets.target

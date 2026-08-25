@@ -1,0 +1,43 @@
+[Unit]
+Description=Myuna Telegram Owner R5 bounded boot resume
+Documentation=file:@CONTROLLER_RELEASE_ROOT@/ADR-035-telegram-r5-boot-resume.md
+Wants=network-online.target myuna-core@qq.service
+Requires=docker.service postgresql.service
+After=docker.service postgresql.service network-online.target systemd-tmpfiles-setup.service myuna-core@qq.service
+ConditionPathExists=/etc/myuna-telegram-gateway/runtime-approved
+ConditionPathExists=/etc/myuna-telegram-gateway/owner-runtime-v1.json
+ConditionPathExists=/etc/myuna-telegram-gateway/r5-resume-v1.json
+StartLimitIntervalSec=15min
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 @CONTROLLER_RELEASE_ROOT@/telegram_r5_boot_resume.py
+RemainAfterExit=yes
+Restart=on-failure
+RestartSec=60s
+TimeoutStartSec=6min
+UMask=0077
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=MYUNA_PHASE_F_CONTROLLER_RELEASE_SHA256=@CONTROLLER_RELEASE_DIGEST@
+Environment=MYUNA_PHASE_F_CONTROLLER_CONFIG_SHA256=@CONTROLLER_CONFIG_SHA256@
+Environment=MYUNA_PHASE_F_CONTROLLER_AUTHORITY_SHA256=@CONTROLLER_AUTHORITY_SHA256@
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

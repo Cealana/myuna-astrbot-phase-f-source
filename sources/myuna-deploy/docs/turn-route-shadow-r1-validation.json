@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "candidate_id": "myuna-turn-route-metadata-shadow-v1-r1",
+  "approved_plan_digest": "aa63fb418623bc7780fc8dadd70c12651a07640488ae10e4fe5a9e7dcf22676f",
+  "validated_at": "2026-07-20T15:10:30+08:00",
+  "status": "passed_repository_source_candidate_inactive",
+  "activation_performed": false,
+  "tests": {
+    "targeted_synthetic": {
+      "passed": 24,
+      "failed": 0
+    },
+    "deploy_full_regression": {
+      "passed": 82,
+      "failed": 0
+    },
+    "core_full_regression_valid_run": {
+      "passed": 107,
+      "failed": 0,
+      "proxy_environment_explicitly_cleared": true
+    },
+    "core_excluded_attempt": {
+      "status": "excluded_proxy_transport_environment",
+      "assertion_failures": 0,
+      "loopback_transport_timeouts": 2
+    },
+    "python_compileall": "passed",
+    "systemd_analyze_verify": "passed",
+    "git_diff_check": "passed",
+    "sensitive_scope_scan_hits": 0
+  },
+  "live_state": {
+    "installed_gateway_hashes_unchanged": true,
+    "core_restart_count": 0,
+    "qq_runtime_restart_count": 0,
+    "memory_shadow_restart_count": 0,
+    "turn_route_marker_present": false,
+    "turn_route_live_config_present": false,
+    "turn_route_installed_code_present": false,
+    "turn_route_runtime_socket_present": false,
+    "turn_route_trace_directory_present": false,
+    "turn_route_service_user_present": false,
+    "turn_route_units_loaded": false,
+    "llama_server_process_present": false
+  },
+  "production_effect": "none"
+}

@@ -1,0 +1,19 @@
+{
+  "schema": "myuna.server-usb-backup-config.v1",
+  "usb_root": "/mnt/e/Myuna-Server-Backup",
+  "staging_root": "/mnt/d/Playground/backups/myuna-usb-staging",
+  "passphrase_file": "/etc/myuna-usb-backup/secrets/archive-passphrase-v1",
+  "state_root": "/var/lib/myuna-usb-backup",
+  "device": {
+    "label": "Server BU",
+    "filesystem": "exFAT",
+    "serial": "AA00000000000489",
+    "disk_size": 256641603584
+  },
+  "minimum_free_bytes": 5368709120,
+  "retention": {
+    "daily": 14,
+    "weekly": 8,
+    "monthly": 6
+  }
+}

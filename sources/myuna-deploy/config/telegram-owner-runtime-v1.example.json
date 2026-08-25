@@ -1,0 +1,14 @@
+{
+  "binding_id": "binding-astrbot-telegram-owner-cealana",
+  "channel_instance": "telegram-owner-dev",
+  "channel_kind": "astrbot_telegram",
+  "core_host": "127.0.0.1",
+  "core_port": 18081,
+  "evidence_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "finalization_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "max_history_characters": 12000,
+  "max_history_messages": 12,
+  "max_requests_per_ten_minutes": 12,
+  "namespace_id": "ns-owner-cealana-private",
+  "principal_id": "principal-owner-cealana"
+}

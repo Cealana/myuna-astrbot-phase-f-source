@@ -1,0 +1,18 @@
+{
+  "schema": "myuna.core-release-selection-candidate.v1",
+  "document_kind": "candidate",
+  "status": "repository_only_inactive",
+  "unit": "myuna-core@qq.service",
+  "instance": "qq",
+  "release_root": "/srv/myuna/releases/core",
+  "stable_selector_dropin": "10-core-release-selector-v1.conf",
+  "canonical_json_algorithm": "myuna-canonical-json-v1",
+  "selected_release": {
+    "tree_digest_algorithm": "myuna-path-content-tree-sha256-v1",
+    "tree_sha256": "430be06ece061b16b3bc2d67e9e2d17764c81073ffc8593403470063935f68a8",
+    "source_commit": "1d968d9bf361cc50a4a9b709a566c698424f3287",
+    "file_count": 149,
+    "artifact_manifest_sha256": "7909359616a3b089f9b6fe5c6b90e6900c7edd9c849e33b012c4b909bc5ac938",
+    "installation_receipt_sha256": "b296bcc04909a459e39d3f60724e7987f431187d05958bc74df99eaf60069777"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "model_enabled": false,
+  "model_endpoint": "http://127.0.0.1:18093",
+  "model_timeout_ms": 2000,
+  "model_id": "Qwen3.5-4B-Q4_K_M",
+  "expected_model_sha256": "13c16f426047e2de38cd075bdade4a7bcbc8c774384876f677740cda65f8a983",
+  "trace_retention_days": 7
+}

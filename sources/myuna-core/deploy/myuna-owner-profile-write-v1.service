@@ -1,0 +1,40 @@
+[Unit]
+Description=Myuna Owner Profile Owner-confirmed write v1 worker
+Requires=myuna-owner-profile-write-v1.socket myuna-owner-profile-read-v1.socket
+After=local-fs.target myuna-local-provider-v1.service
+
+[Service]
+Type=simple
+User=myuna_owner_profile
+Group=myuna_owner_profile
+EnvironmentFile=/etc/myuna-owner-profile-write-v1/writer.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -m myuna_core.owner_profile.write_socket_worker
+Restart=on-failure
+RestartSec=3s
+UMask=0077
+TasksMax=32
+MemoryMax=256M
+CPUQuota=50%
+TimeoutStopSec=20s
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET
+IPAddressDeny=any
+IPAddressAllow=localhost
+ReadWritePaths=/var/lib/myuna-owner-profile-write-v1 /var/log/myuna-owner-profile-write-v1
+ReadOnlyPaths=/opt/myuna/owner-profile-write-v1 /etc/myuna-owner-profile-write-v1

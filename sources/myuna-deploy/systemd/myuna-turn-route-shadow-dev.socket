@@ -1,0 +1,18 @@
+[Unit]
+Description=Myuna Turn/Route metadata-only Shadow datagram socket (dev candidate)
+Documentation=file:/srv/myuna/repos/deploy/docs/ADR-027-turn-route-metadata-shadow-v1.md
+ConditionPathExists=/etc/myuna-gateway/qq-owner-turn-route-shadow-v1-enabled
+ConditionPathExists=/etc/myuna-shadow/turn-route-shadow-v1.json
+
+[Socket]
+ListenDatagram=/run/myuna-turn-route-shadow-dev/shadow.sock
+Service=myuna-turn-route-shadow-dev.service
+SocketUser=myuna_shadow_classifier
+SocketGroup=myuna-gateway
+SocketMode=0620
+DirectoryMode=0755
+ReceiveBuffer=262144
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

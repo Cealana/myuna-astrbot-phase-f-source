@@ -1,0 +1,33 @@
+[Unit]
+Description=Myuna DeepSeek one-request live gate
+Documentation=file:/srv/myuna/repos/core/docs/provider-dev-deepseek-contract.md
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/myuna/secrets/deepseek-api-key
+
+[Service]
+Type=oneshot
+User=myuna
+Group=myuna
+WorkingDirectory=/srv/myuna/repos/core
+Environment=PYTHONPATH=/srv/myuna/repos/core/src
+EnvironmentFile=/etc/myuna/dev.env
+LoadCredential=deepseek_api_key:/etc/myuna/secrets/deepseek-api-key
+ExecStart=/usr/bin/env MYUNA_PROVIDER_LIVE_CALLS_ENABLED=true /usr/bin/python3 /srv/myuna/repos/core/scripts/run_deepseek_live_gate.py --data-dir /var/lib/myuna/dev --log-dir /var/log/myuna/dev/provider-live-gate --output-root /var/lib/myuna/dev/provider-live-gate
+TimeoutStartSec=180
+UMask=0077
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/myuna/dev /var/log/myuna/dev

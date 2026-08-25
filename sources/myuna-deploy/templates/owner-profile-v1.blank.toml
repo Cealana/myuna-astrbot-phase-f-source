@@ -1,0 +1,39 @@
+# BLANK TEMPLATE ONLY. Do not deploy this file.
+# Remove template_only and set profile_revision to a positive integer after Owner review.
+schema_version = 1
+document_type = "owner_profile_baseline"
+profile_id = "owner-profile-baseline"
+profile_revision = 0
+template_only = true
+
+[[sections]]
+section_id = "about-owner"
+topic_key = "about.owner"
+category = "self_introduction"
+title = "自我介绍"
+body = ""
+keywords = []
+
+[[sections]]
+section_id = "durable-preferences"
+topic_key = "preference.general"
+category = "long_term_preference"
+title = "长期偏好"
+body = ""
+keywords = []
+
+[[sections]]
+section_id = "durable-goals"
+topic_key = "goal.general"
+category = "long_term_goal"
+title = "长期目标"
+body = ""
+keywords = []
+
+[[sections]]
+section_id = "ongoing-projects"
+topic_key = "project.general"
+category = "ongoing_project"
+title = "持续项目"
+body = ""
+keywords = []

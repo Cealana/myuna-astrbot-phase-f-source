@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "policy_id": "vision-media-probe-pillow-v1",
+  "status": "inactive_candidate",
+  "allowed_formats": ["JPEG", "PNG", "WEBP"],
+  "maximum_bytes": 8388608,
+  "maximum_width": 8192,
+  "maximum_height": 8192,
+  "maximum_pixels": 16000000,
+  "allow_animation": false,
+  "allow_trailing_payload": false
+}

@@ -1,0 +1,15 @@
+[Unit]
+Description=Myuna owner-memory Shadow local datagram socket (dev)
+
+[Socket]
+ListenDatagram=/run/myuna-owner-memory-shadow-dev/shadow.sock
+Service=myuna-owner-memory-shadow-dev.service
+SocketUser=myuna_memory_preview
+SocketGroup=myuna-gateway
+SocketMode=0620
+DirectoryMode=0755
+ReceiveBuffer=262144
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

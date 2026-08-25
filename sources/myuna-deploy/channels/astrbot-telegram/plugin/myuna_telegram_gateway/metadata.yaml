@@ -1,0 +1,7 @@
+name: astrbot_plugin_myuna_telegram_gateway
+desc: Fail-closed Telegram private-text and bounded vision-to-Core boundary.
+author: Myuna Server
+version: 0.2.0
+repo: local-only
+support_platforms:
+  - telegram

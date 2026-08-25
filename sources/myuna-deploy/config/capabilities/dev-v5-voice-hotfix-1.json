@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "manifest_id": "myuna-dev-capabilities-20260716-v5-voice-hotfix-1",
+  "environment": "dev",
+  "definition": {
+    "version": "v5",
+    "build_id": "v5vh1-2755db85ca7e-h3977d01a-g5e782ef9-t85c51fd3-a5a5a558b",
+    "release_active": true
+  },
+  "service": {
+    "core_active": true,
+    "external_listener_enabled": false,
+    "response_scope": "qq_owner_private_dev_no_memory"
+  },
+  "capabilities": {
+    "conversation": {
+      "enabled": true,
+      "scope": "verified owner private QQ text conversation",
+      "reason": "the owner QQ challenge and evidence-bound identity finalization completed"
+    },
+    "long_term_memory_read": {
+      "enabled": false,
+      "scope": "none",
+      "reason": "the first QQ runtime gate is stateless apart from bounded in-process conversation history"
+    },
+    "long_term_memory_write": {
+      "enabled": false,
+      "scope": "none",
+      "reason": "real personal memory writes require a later explicit gate"
+    },
+    "vision": {
+      "enabled": false,
+      "scope": "none",
+      "reason": "the initial QQ runtime accepts plain text only"
+    },
+    "tools": {
+      "enabled": false,
+      "scope": "none",
+      "reason": "tool execution remains outside the QQ conversation gate"
+    },
+    "external_data": {
+      "enabled": false,
+      "scope": "none",
+      "reason": "no web or external data connector is attached"
+    },
+    "external_actions": {
+      "enabled": false,
+      "scope": "none",
+      "reason": "QQ conversation cannot create external side effects"
+    },
+    "system_administration": {
+      "enabled": false,
+      "scope": "none",
+      "reason": "the model has no Windows, Linux, Minecraft, network, or database authority"
+    },
+    "qq_channel": {
+      "enabled": true,
+      "scope": "verified owner private text only",
+      "reason": "the existing owner binding remains active and verified"
+    }
+  },
+  "models": {
+    "default": {
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "thinking": "disabled"
+    },
+    "persona_escalation": {
+      "provider": "deepseek",
+      "model": "deepseek-v4-pro",
+      "thinking": "disabled"
+    }
+  },
+  "routing": {
+    "max_repair_attempts": 1,
+    "fast_failures_before_escalation": 2,
+    "pro_task_classes": [
+      "definition_change",
+      "canon_conflict",
+      "relationship_boundary",
+      "checklist_overload"
+    ],
+    "high_risk_uses_escalation": true
+  },
+  "authorizations": {
+    "release_activation": true,
+    "service_activation": true,
+    "real_memory": false,
+    "tools": false,
+    "external_network_listener": false
+  },
+  "source_adrs": [
+    "ADR-012-v5-loopback-dev-core.md",
+    "ADR-018-napcat-primary-channel.md",
+    "ADR-019-owner-qq-private-challenge.md",
+    "ADR-020-owner-qq-private-runtime-v1.md",
+    "ADR-026-v5-voice-hotfix-activation.md"
+  ]
+}

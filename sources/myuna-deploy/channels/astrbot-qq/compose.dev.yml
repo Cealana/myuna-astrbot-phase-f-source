@@ -1,0 +1,102 @@
+name: myuna-astrbot-qq-dev
+
+services:
+  astrbot:
+    image: soulter/astrbot@sha256:7546bddf1040419a455dd1ca683a5e9cf84436bbd85de17c7ac626d3af7affe4
+    container_name: myuna-astrbot-dev
+    user: "${CHANNEL_UID:?CHANNEL_UID is required}:${CHANNEL_GID:?CHANNEL_GID is required}"
+    init: true
+    restart: unless-stopped
+    environment:
+      HOME: /AstrBot/data/home
+      MYUNA_GATEWAY_CHANNEL_INSTANCE: napcat-dev
+      MYUNA_GATEWAY_SIGNING_SECRET: /run/secrets/myuna-channel-signing-v1
+      MYUNA_GATEWAY_SOCKET: /run/myuna-gateway/qq-owner.sock
+      PYTHONDONTWRITEBYTECODE: "1"
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:6185:6185"
+    expose:
+      - "6199"
+    volumes:
+      - "${CHANNEL_ROOT:?CHANNEL_ROOT is required}/astrbot-data:/AstrBot/data"
+      - "${CHANNEL_ROOT:?CHANNEL_ROOT is required}/shared-media:/srv/channel-media"
+      - "${CHANNEL_PLUGIN_ROOT:?CHANNEL_PLUGIN_ROOT is required}:/AstrBot/data/plugins/astrbot_plugin_myuna_gateway:ro"
+      - "${CHANNEL_SIGNING_SECRET_PATH:?CHANNEL_SIGNING_SECRET_PATH is required}:/run/secrets/myuna-channel-signing-v1:ro"
+      - "${CHANNEL_RUNTIME_ROOT:?CHANNEL_RUNTIME_ROOT is required}:/run/myuna-gateway:ro"
+    networks:
+      - channel
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    mem_limit: 1536m
+    cpus: "1.50"
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=256m,uid=${CHANNEL_UID},gid=${CHANNEL_GID}
+    stop_grace_period: 30s
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket; s=socket.create_connection(('127.0.0.1',6185),3); s.close()"
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+
+  napcat:
+    image: mlikiowa/napcat-docker@sha256:32891e1f5aa654ef84fb4fcfb1724b4d844a26c2fcb11519945e64e22d13e766
+    container_name: myuna-napcat-dev
+    init: true
+    restart: unless-stopped
+    depends_on:
+      astrbot:
+        condition: service_healthy
+    environment:
+      NAPCAT_UID: "${CHANNEL_UID:?CHANNEL_UID is required}"
+      NAPCAT_GID: "${CHANNEL_GID:?CHANNEL_GID is required}"
+      ACCOUNT: "${NAPCAT_ACCOUNT:?NAPCAT_ACCOUNT is required}"
+      WEBUI_TOKEN: "${NAPCAT_WEBUI_TOKEN:?NAPCAT_WEBUI_TOKEN is required}"
+      WEBUI_PREFIX: /webui
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:6099:6099"
+    volumes:
+      - "${CHANNEL_ROOT:?CHANNEL_ROOT is required}/napcat-config:/app/napcat/config"
+      - "${CHANNEL_ROOT:?CHANNEL_ROOT is required}/napcat-qq:/app/.config/QQ"
+      - "${CHANNEL_ROOT:?CHANNEL_ROOT is required}/shared-media:/srv/channel-media"
+    networks:
+      - channel
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: 1536m
+    cpus: "1.50"
+    shm_size: 256m
+    stop_grace_period: 60s
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "bash -lc '</dev/tcp/127.0.0.1/6099'"
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 90s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+
+networks:
+  channel:
+    name: myuna-astrbot-qq-dev
+    driver: bridge

@@ -1,0 +1,30 @@
+{
+  "profiles": {
+    "current-12": {
+      "max_history_characters": 16000,
+      "max_history_messages": 12,
+      "status": "current-default"
+    },
+    "qa-24": {
+      "max_history_characters": 32000,
+      "max_history_messages": 24,
+      "status": "offline-qa-only"
+    },
+    "qa-36": {
+      "max_history_characters": 48000,
+      "max_history_messages": 36,
+      "status": "offline-qa-only"
+    },
+    "target-128": {
+      "max_history_characters": 131072,
+      "max_history_messages": 128,
+      "status": "contract-only"
+    },
+    "contract-maximum-256": {
+      "max_history_characters": 262144,
+      "max_history_messages": 256,
+      "status": "contract-only"
+    }
+  },
+  "schema": "myuna.gateway.context-window-profiles.v1"
+}

@@ -1,0 +1,84 @@
+{
+  "schema": "myuna.p16-incident-history.synthetic.v1",
+  "release_set_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "events": [
+    {
+      "kind": "fault",
+      "observed_at": "2026-08-05T01:00:01Z",
+      "latency_bucket": "lt5s",
+      "http_outcome_class": "5xx",
+      "safe_detail_code": "core-runtime-fail-closed",
+      "category": "core_or_gateway_failure",
+      "retryable": true,
+      "provider_called": false,
+      "model_called": false,
+      "incident_ref": "inc-111111111111",
+      "epoch_revision_delta": 0,
+      "turn_delta": 0,
+      "summary_delta": 0,
+      "pending_after": 0,
+      "delivery_delta": 0
+    },
+    {
+      "kind": "success",
+      "observed_at": "2026-08-05T01:00:10Z",
+      "turn_delta": 1,
+      "pending_after": 0,
+      "delivery_delta": 1
+    },
+    {
+      "kind": "fault",
+      "observed_at": "2026-08-05T01:01:01Z",
+      "latency_bucket": "lt5s",
+      "http_outcome_class": "5xx",
+      "safe_detail_code": "core-runtime-fail-closed",
+      "category": "core_or_gateway_failure",
+      "retryable": true,
+      "provider_called": false,
+      "model_called": false,
+      "incident_ref": "inc-222222222222",
+      "epoch_revision_delta": 0,
+      "turn_delta": 0,
+      "summary_delta": 0,
+      "pending_after": 0,
+      "delivery_delta": 0
+    },
+    {
+      "kind": "success",
+      "observed_at": "2026-08-05T01:01:10Z",
+      "turn_delta": 1,
+      "pending_after": 0,
+      "delivery_delta": 1
+    },
+    {
+      "kind": "fault",
+      "observed_at": "2026-08-05T01:03:00Z",
+      "latency_bucket": "gte60s",
+      "http_outcome_class": "5xx",
+      "safe_detail_code": "provider-transport-failure",
+      "category": "provider_transient_failure",
+      "retryable": true,
+      "provider_called": true,
+      "model_called": true,
+      "incident_ref": "inc-333333333333",
+      "epoch_revision_delta": 0,
+      "turn_delta": 0,
+      "summary_delta": 1,
+      "pending_after": 0,
+      "delivery_delta": 0
+    },
+    {
+      "kind": "success",
+      "observed_at": "2026-08-05T01:03:10Z",
+      "turn_delta": 1,
+      "pending_after": 0,
+      "delivery_delta": 1
+    }
+  ],
+  "expected": {
+    "fault_count": 3,
+    "success_count": 3,
+    "final_pending": 0,
+    "background_summary_delta": 1
+  }
+}

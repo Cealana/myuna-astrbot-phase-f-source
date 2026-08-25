@@ -1,0 +1,20 @@
+[Unit]
+Description=Myuna AstrBot and NapCat QQ development channel
+Documentation=file:/srv/myuna/repos/deploy/docs/ASTRBOT_NAPCAT_DEV_OPERATIONS.md
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/myuna-gateway/astrbot-napcat-dev.env
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/srv/myuna/repos/deploy/channels/astrbot-qq
+ExecStart=/usr/bin/docker compose --env-file /etc/myuna-gateway/astrbot-napcat-dev.env -f compose.dev.yml up -d --remove-orphans
+ExecStop=/usr/bin/docker compose --env-file /etc/myuna-gateway/astrbot-napcat-dev.env -f compose.dev.yml stop --timeout 60
+TimeoutStartSec=300
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target
+

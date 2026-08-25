@@ -1,0 +1,17 @@
+[Unit]
+Description=Myuna owner challenge Unix socket (dev, activation gated)
+Documentation=file:/srv/myuna/repos/deploy/docs/ADR-019-owner-qq-private-challenge.md
+ConditionPathExists=/etc/myuna-gateway/activation-approved
+ConditionPathExists=/etc/myuna-gateway/owner-challenge-v1.json
+
+[Socket]
+ListenStream=/run/myuna-gateway/challenge.sock
+SocketUser=root
+SocketGroup=myuna-gateway
+SocketMode=0660
+DirectoryMode=0750
+Accept=no
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

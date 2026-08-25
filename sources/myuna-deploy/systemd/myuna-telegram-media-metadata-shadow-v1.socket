@@ -1,0 +1,17 @@
+[Unit]
+Description=Myuna Telegram media metadata-only Shadow socket (inactive candidate)
+Documentation=file:@SHADOW_RELEASE_ROOT@/docs/ADR-049-telegram-media-metadata-shadow-v1.md
+ConditionPathExists=/etc/myuna-shadow/telegram-media-metadata-shadow-v1-enabled
+
+[Socket]
+ListenDatagram=/run/myuna-telegram-media-metadata-shadow/shadow.sock
+Service=myuna-telegram-media-metadata-shadow-v1.service
+SocketUser=myuna-telegram-media-shadow
+SocketGroup=myuna-gateway-telegram
+SocketMode=0620
+DirectoryMode=0755
+ReceiveBuffer=131072
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

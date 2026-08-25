@@ -1,0 +1,98 @@
+{
+  "authorizations": {
+    "external_network_listener": false,
+    "real_memory": true,
+    "release_activation": true,
+    "service_activation": true,
+    "tools": false
+  },
+  "capabilities": {
+    "conversation": {
+      "enabled": true,
+      "reason": "the existing verified Owner-private Telegram binding remains active",
+      "scope": "verified owner private Telegram text conversation"
+    },
+    "external_actions": {
+      "enabled": false,
+      "reason": "the Profile writer cannot create external side effects",
+      "scope": "none"
+    },
+    "external_data": {
+      "enabled": false,
+      "reason": "candidate analysis uses only the local loopback provider",
+      "scope": "none"
+    },
+    "long_term_memory_read": {
+      "enabled": true,
+      "reason": "Owner-approved Profile and bounded relevant-section retrieval",
+      "scope": "verified owner private text; owner profile baseline; read-only bounded sections"
+    },
+    "long_term_memory_write": {
+      "enabled": true,
+      "reason": "explicit Benchmark intent, local analysis, exact Owner confirmation and immutable revision",
+      "scope": "verified Telegram Owner-private text; local candidate analysis; Owner-confirmed immutable Profile revision"
+    },
+    "qq_channel": {
+      "enabled": true,
+      "reason": "the existing channel-authenticated Core gate remains active",
+      "scope": "verified owner private text only"
+    },
+    "system_administration": {
+      "enabled": false,
+      "reason": "the model and writer have no host administration authority",
+      "scope": "none"
+    },
+    "tools": {
+      "enabled": false,
+      "reason": "tool execution remains outside the Profile write gate",
+      "scope": "none"
+    },
+    "vision": {
+      "enabled": false,
+      "reason": "the Profile write protocol accepts text only",
+      "scope": "none"
+    }
+  },
+  "definition": {
+    "build_id": "v6ev2-1c344e35df28-o63656be5-cfcf597f6-g311561ea-qa12-qqtg1-r3",
+    "release_active": true,
+    "version": "v6"
+  },
+  "environment": "dev",
+  "manifest_id": "myuna-dev-capabilities-20260802-p07c-profile-write-v1",
+  "models": {
+    "default": {
+      "model": "myuna-local-owner-v1",
+      "provider": "local",
+      "thinking": "disabled"
+    },
+    "persona_escalation": {
+      "model": "myuna-local-owner-v1",
+      "provider": "local",
+      "thinking": "disabled"
+    }
+  },
+  "routing": {
+    "fast_failures_before_escalation": 2,
+    "high_risk_uses_escalation": true,
+    "max_repair_attempts": 1,
+    "pro_task_classes": [
+      "definition_change",
+      "canon_conflict",
+      "relationship_boundary",
+      "checklist_overload"
+    ]
+  },
+  "schema_version": 1,
+  "service": {
+    "core_active": true,
+    "external_listener_enabled": false,
+    "response_scope": "owner_private_dev_profile_write_v1"
+  },
+  "source_adrs": [
+    "ADR-052-owner-profile-baseline-readonly-v1.md",
+    "ADR-054-owner-profile-write-lifecycle-v1.md",
+    "ADR-055-owner-profile-local-provider-boundary-v1.md",
+    "ADR-057-owner-profile-intelligent-candidate-write-v1.md"
+  ]
+}

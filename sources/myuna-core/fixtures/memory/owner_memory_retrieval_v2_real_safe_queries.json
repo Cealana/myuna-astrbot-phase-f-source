@@ -1,0 +1,121 @@
+{
+  "schema_version": 2,
+  "description": "Read-only non-restricted regression cases. Query text is test input; record text must never be emitted.",
+  "cases": [
+    {
+      "id": "real-failure-long-natural-question",
+      "query": "还记得我们最开始讨论长期记忆时，我希望你怎样保留那些重要的事情吗？",
+      "expected_first": "M001",
+      "expected_horizon": "deep"
+    },
+    {
+      "id": "real-failure-short-policy-question",
+      "query": "我希望长期记忆怎样保留重要的事情？",
+      "expected_first": "M001",
+      "expected_horizon": "deep"
+    },
+    {
+      "id": "q01-memory-anchor",
+      "query": "Myuna 要怎样成为我的记忆锚点",
+      "expected_first": "M001"
+    },
+    {
+      "id": "q02-exact-quote",
+      "query": "我说过自己很喜欢回忆的原话是什么",
+      "expected_first": "M002"
+    },
+    {
+      "id": "q03-first-moments",
+      "query": "第一次和特别时刻应该怎么保存",
+      "expected_first": "M003"
+    },
+    {
+      "id": "q04-lossless-detail",
+      "query": "原始回忆可以为了节省空间压缩掉细节吗",
+      "expected_first": "M004",
+      "expected_hit_ids": ["M004"]
+    },
+    {
+      "id": "q05-ask-when-uncertain",
+      "query": "部署测试期不确定时可以直接问我吗",
+      "expected_first": "M005"
+    },
+    {
+      "id": "q06-rationale",
+      "query": "记住决定时要不要保存当时的原因和背景",
+      "expected_first": "M006"
+    },
+    {
+      "id": "q07-change-timeline",
+      "query": "新的想法会不会覆盖以前的想法和变化过程",
+      "expected_first": "M007"
+    },
+    {
+      "id": "q08-forget-semantics",
+      "query": "我说忘了吧是不是就要彻底删除",
+      "expected_first": "M008"
+    },
+    {
+      "id": "q11-extensibility",
+      "query": "为什么整个系统要保持模块化和可扩展",
+      "expected_first": "M011"
+    },
+    {
+      "id": "q12-versioned-tuning",
+      "query": "3/7/30 复核周期以后可以版本化调整吗",
+      "expected_first": "M012"
+    },
+    {
+      "id": "q13-private-archive",
+      "query": "一对一私聊是不是默认保存完整档案并在闲置时整理",
+      "expected_first": "M013"
+    },
+    {
+      "id": "q14-retrieval-window",
+      "query": "日常聊天默认检索最近几天还是深度历史档案",
+      "expected_first": "M014"
+    },
+    {
+      "id": "negative-current-chat",
+      "query": "今天有点困，刚刚喝了杯水",
+      "expected_first": null,
+      "expected_horizon": "recent"
+    },
+    {
+      "id": "negative-unrelated-weather",
+      "query": "外面天气怎么样",
+      "expected_first": null,
+      "expected_horizon": "recent"
+    },
+    {
+      "id": "negative-unknown-key-location",
+      "query": "还记得我的钥匙放在哪里吗？",
+      "expected_first": null,
+      "expected_horizon": "deep"
+    },
+    {
+      "id": "negative-unrecorded-exact-quote",
+      "query": "我说过明天要重启服务器吗？",
+      "expected_first": null,
+      "expected_horizon": "deep"
+    },
+    {
+      "id": "negative-unrecorded-rationale",
+      "query": "为什么我会喜欢蓝色？",
+      "expected_first": null,
+      "expected_horizon": "deep"
+    },
+    {
+      "id": "negative-imperative-remember",
+      "query": "记得提醒我明天重启服务器",
+      "expected_first": null,
+      "expected_horizon": "recent"
+    },
+    {
+      "id": "negative-operational-memory-port",
+      "query": "长期记忆的数据库端口是多少？",
+      "expected_first": null,
+      "expected_horizon": "recent"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+name: astrbot_plugin_myuna_gateway
+desc: Fail-closed QQ private-message boundary for the Myuna owner runtime.
+author: Myuna Server
+version: 0.2.0
+repo: local-only
+support_platforms:
+  - aiocqhttp

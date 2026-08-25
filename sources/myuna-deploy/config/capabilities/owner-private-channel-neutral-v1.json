@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "profile_id": "owner-private-text-readonly-memory-v2",
+  "environment": "dev",
+  "response_scope": "owner_private_dev_readonly_memory_v2",
+  "subject": {
+    "channel_kinds": [
+      "astrbot_qq",
+      "astrbot_telegram"
+    ],
+    "conversation_kinds": [
+      "private"
+    ],
+    "authority_levels": [
+      "owner"
+    ]
+  },
+  "delivery_capabilities": [
+    "text"
+  ],
+  "memory_protocol": "v2",
+  "capabilities": {
+    "conversation": true,
+    "long_term_memory_read": true,
+    "long_term_memory_write": false,
+    "vision": false,
+    "tools": false,
+    "external_data": false,
+    "external_actions": false,
+    "system_administration": false
+  }
+}

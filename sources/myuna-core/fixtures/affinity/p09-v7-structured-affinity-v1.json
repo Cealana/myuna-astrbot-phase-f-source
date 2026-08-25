@@ -1,0 +1,71 @@
+{
+  "fixture_schema": "myuna.structured-affinity.synthetic-fixtures.v1",
+  "namespace_id": "synthetic.owner-alpha",
+  "events": [
+    {
+      "abstention_reason": "insufficient_evidence",
+      "action": "abstain",
+      "confidence": "none",
+      "dimension": "affection",
+      "event_id": "synthetic-event-1",
+      "evidence_refs": [],
+      "namespace_id": "synthetic.owner-alpha",
+      "schema": "myuna.structured-affinity.v1",
+      "sequence": 1,
+      "source_kind": "synthetic_fixture",
+      "value": null
+    },
+    {
+      "abstention_reason": null,
+      "action": "propose",
+      "confidence": "low",
+      "dimension": "affection",
+      "event_id": "synthetic-event-2",
+      "evidence_refs": ["synthetic.profile.1"],
+      "namespace_id": "synthetic.owner-alpha",
+      "schema": "myuna.structured-affinity.v1",
+      "sequence": 2,
+      "source_kind": "synthetic_fixture",
+      "value": 10
+    },
+    {
+      "abstention_reason": null,
+      "action": "confirm",
+      "confidence": "medium",
+      "dimension": "affection",
+      "event_id": "synthetic-event-3",
+      "evidence_refs": ["synthetic.context.2"],
+      "namespace_id": "synthetic.owner-alpha",
+      "schema": "myuna.structured-affinity.v1",
+      "sequence": 3,
+      "source_kind": "synthetic_fixture",
+      "value": 10
+    },
+    {
+      "abstention_reason": null,
+      "action": "conflict",
+      "confidence": "medium",
+      "dimension": "affection",
+      "event_id": "synthetic-event-4",
+      "evidence_refs": ["synthetic.temporal.3"],
+      "namespace_id": "synthetic.owner-alpha",
+      "schema": "myuna.structured-affinity.v1",
+      "sequence": 4,
+      "source_kind": "synthetic_fixture",
+      "value": 90
+    },
+    {
+      "abstention_reason": null,
+      "action": "repair",
+      "confidence": "high",
+      "dimension": "affection",
+      "event_id": "synthetic-event-5",
+      "evidence_refs": ["synthetic.context.4", "synthetic.profile.5"],
+      "namespace_id": "synthetic.owner-alpha",
+      "schema": "myuna.structured-affinity.v1",
+      "sequence": 5,
+      "source_kind": "synthetic_fixture",
+      "value": 20
+    }
+  ]
+}

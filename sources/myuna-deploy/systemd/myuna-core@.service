@@ -1,0 +1,36 @@
+[Unit]
+Description=Myuna Core (%i)
+Documentation=file:/srv/myuna/repos/deploy/docs/DEPLOYMENT.md
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/myuna/%i.env
+
+[Service]
+Type=simple
+User=myuna
+Group=myuna
+WorkingDirectory=/srv/myuna/repos/core
+Environment=PYTHONPATH=/srv/myuna/repos/core/src
+EnvironmentFile=/etc/myuna/%i.env
+ExecStart=/usr/bin/python3 -m myuna_core
+Restart=on-failure
+RestartSec=5s
+UMask=0027
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/myuna/%i /var/log/myuna/%i
+
+[Install]
+WantedBy=multi-user.target

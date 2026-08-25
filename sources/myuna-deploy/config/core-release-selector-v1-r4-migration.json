@@ -1,0 +1,118 @@
+{
+  "schema": "myuna.core-release-selector.r4-migration-contract.v1",
+  "status": "repository_candidate_not_installed_or_active",
+  "unit": "myuna-core@qq.service",
+  "instance": "qq",
+  "base_template": {
+    "path": "/etc/systemd/system/myuna-core@.service",
+    "sha256": "de6cc65bab62a424a0508f3f8933a2438caf0fd18177e1ad03799477044855e3"
+  },
+  "prestate": {
+    "dropin_file_count": 13,
+    "effective_owner": "zzzzzz-natural-degradation-r2c-core.conf",
+    "effective_working_directory": "/srv/myuna/releases/core/3bc0fb63d8b4bad4a8e691e9091bb1aae57becbf9f46da5f71508a14327adb21",
+    "active_tree_sha256": "430be06ece061b16b3bc2d67e9e2d17764c81073ffc8593403470063935f68a8",
+    "active_file_count": 149
+  },
+  "target": {
+    "release_path": "/srv/myuna/releases/core/430be06ece061b16b3bc2d67e9e2d17764c81073ffc8593403470063935f68a8",
+    "tree_sha256": "430be06ece061b16b3bc2d67e9e2d17764c81073ffc8593403470063935f68a8",
+    "file_count": 149,
+    "source_commit": "1d968d9bf361cc50a4a9b709a566c698424f3287",
+    "selector_dropin": "10-core-release-selector-v1.conf",
+    "selector_dropin_sha256": "a8a733ade0992c3d94f919afc945fb052dbd1580cd777efccf6b0365bfb32ef0",
+    "guard_dropin": "05-core-release-selector-guard-v1.conf",
+    "guard_dropin_sha256": "30c69f98d8a27c5d3cd04c6ae9b9ad7513e00685e0003ee71399a3d2fae180c4",
+    "runtime_binding": "/etc/myuna/core-release-selector/qq.binding.json"
+  },
+  "r3b": {
+    "approved_plan_digest": "3a3b9e0426116a2f833fc89631da2b98d08eb81175956f1f2da0b371b8ccb705",
+    "verifier_path": "/opt/myuna/core-release-selector/releases/3fab13b7b533c3e93bf5759256ff5153d7bb17aea0fc8307f560e82985a7fcaf/core_release_selector.py",
+    "verifier_sha256": "3fab13b7b533c3e93bf5759256ff5153d7bb17aea0fc8307f560e82985a7fcaf",
+    "candidate_root": "/etc/myuna/core-release-selector/candidates/3a3b9e0426116a2f833fc89631da2b98d08eb81175956f1f2da0b371b8ccb705",
+    "binding_intent_sha256": "0ee3c54dbcb3575d6b471595341df076658ca5b6cdf676bf30ec4b5a53ce3068"
+  },
+  "migration": {
+    "90-voice-hotfix.conf": {
+      "action": "delete",
+      "source_sha256": "bf86829a4362fe3dc395e799d554b254434b4de7a20646ac5ff45dbaeee15a8d",
+      "removed_release_directive_count": 2
+    },
+    "95-reply-contract-hotfix.conf": {
+      "action": "delete",
+      "source_sha256": "f07fbe3e635407d91b6a1642a1ee54125610e15b63157355690fe8e79827e5ac",
+      "removed_release_directive_count": 2
+    },
+    "96-deepseek-thinking-output-v1.conf": {
+      "action": "delete",
+      "source_sha256": "619f5280854f4c8e7051d1763c2e4f17032bd5809c44ecc22b0d72ed676e04fc",
+      "removed_release_directive_count": 2
+    },
+    "98-reply-contract-v2.conf": {
+      "action": "replace",
+      "source_sha256": "d43a82816141c4a35c084c1bc6f67e6ab2cc1c83e904582db6608986b35dbdb0",
+      "target_sha256": "3cee51f817c608e1afc31dae160ca78ae8cd6871c43aec04abd8c5cda0e0c43f",
+      "removed_release_directive_count": 2
+    },
+    "99-reply-contract-v3.conf": {
+      "action": "replace",
+      "source_sha256": "682b89a9d01fe4736b7e1790368998d1d0debead29c503f473969911f4ec0357",
+      "target_sha256": "af119eee81efff39225efffe306917b84df427577b1c289245d5f84ebf28259d",
+      "removed_release_directive_count": 2
+    },
+    "zz-effective-v5-overlay-v3.conf": {
+      "action": "replace",
+      "source_sha256": "f00b7870717733602d0133a31713719cbabb9a82bf68cc68d776111cb0e618fd",
+      "target_sha256": "882d60aeca0a89399cdc8397e17e0c8969b635ed44befc80a6a121d561bc542f",
+      "removed_release_directive_count": 2
+    },
+    "zzz-owner-memory-readonly-v1.conf": {
+      "action": "replace",
+      "source_sha256": "156831057095625e8b243a9ff9b0654fc13a43cb1db6d86db3de8af7b7d7954e",
+      "target_sha256": "9714c92c72c4c7589bf6bf46f722787966ddb54e2941b63257be3cb0fadf3560",
+      "removed_release_directive_count": 2
+    },
+    "zzzz-owner-memory-readonly-v2.conf": {
+      "action": "replace",
+      "source_sha256": "ff9a9bb5c48337c8ce9b47fb42cd5fd803145b299ffb6a0a0c482e3c9a81859f",
+      "target_sha256": "b74667805c47b1d03297e4a64395f3d1d20a2500957cdbc3061bc2f934a2d67d",
+      "removed_release_directive_count": 2
+    },
+    "zzzzz-runtime-capability-honesty-v1.conf": {
+      "action": "delete",
+      "source_sha256": "585a89e1ee2132e7e03c51d28698b6409d1c695d587dd84213c7ac439e22b799",
+      "removed_release_directive_count": 2
+    },
+    "zzzzzz-natural-degradation-r2c-core.conf": {
+      "action": "delete",
+      "source_sha256": "7f0db8e9e233fb67594625a50cc933243137fb3beb2248f482765f3de6605da9",
+      "removed_release_directive_count": 2
+    }
+  },
+  "preserved_dropins": {
+    "25-wsl-clash-proxy.conf": "ec6ff38533936e5a83f2ba9ec2bedfef4b6e6ebc2f979d1284962f1e3c53b9fa",
+    "97-deepseek-pro-first-v1.conf": "4be883d9e430e4799b3edb4e86983a0536850b3c4a6e2126efd5b6a133c537db",
+    "credentials.conf": "28bbc52f2f68ac5393fdbff35285294a01ad978b3f6c015206aad651d5207e98"
+  },
+  "environment_files": [
+    "/etc/myuna/qq.env",
+    "/etc/myuna/experiments/deepseek-pro-first-v1.env",
+    "/etc/myuna/effective-v5-overlay-v3-r10.env",
+    "/etc/myuna/owner-memory-readonly-v1.env",
+    "/etc/myuna/owner-memory-readonly-v2.env"
+  ],
+  "gateway": {
+    "unit": "myuna-qq-owner-runtime-dev.service",
+    "fragment_sha256": "61bca49294d82e43546791e0e04c74933457b827099c8d8928f5f3f354edd3c0",
+    "dropins": {
+      "zz-natural-degradation-r2c-gateway.conf": "c8efc7eac5f0a43e2263e177c10830e46d872497e0d728defaeb95fa9842d085"
+    },
+    "requires_core": true,
+    "future_activation_sequence": "explicitly stop Gateway before Core restart and explicitly start it only after Core health succeeds"
+  },
+  "next_stage": {
+    "name": "R4B inactive transaction bundle staging",
+    "requires_separate_plan_digest_and_owner_approval": true,
+    "r4a_does_not_authorize_system_writes_or_activation": true
+  }
+}

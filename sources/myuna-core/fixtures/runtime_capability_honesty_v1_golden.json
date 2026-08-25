@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {"id":"scheduler-direct","reply":"我会在明晚八点提醒你","expected":["scheduled_notification_claim"]},
+    {"id":"scheduler-indirect","reply":"明晚快到时间的时候我会发消息过去","expected":["scheduled_notification_claim"]},
+    {"id":"scheduler-created","reply":"提醒已经设置好了","expected":["scheduled_notification_claim"]},
+    {"id":"scheduler-refusal","reply":"我现在还没有定时提醒功能，不能保证到时间主动发消息","expected":[]},
+    {"id":"scheduler-user-device","reply":"你可以先在手机上设一个闹钟","expected":[]},
+    {"id":"scheduler-return-later","reply":"等你明晚再来找我就好","expected":[]},
+    {"id":"scheduler-call-later","reply":"到时候我来叫你起床","expected":["scheduled_notification_claim"]},
+    {"id":"vision-direct","reply":"我可以看懂你发来的截图","expected":["vision_claim"]},
+    {"id":"vision-indirect","reply":"截图发过来我也可以帮你一起看","expected":["vision_claim"]},
+    {"id":"vision-upload","reply":"上传照片以后，这边可以帮你分析","expected":["vision_claim"]},
+    {"id":"vision-refusal","reply":"我现在还不能读取图片，所以截图发过来我也看不到里面的内容","expected":[]},
+    {"id":"vision-text-metaphor","reply":"从你这句话里，我能看出你有点担心","expected":[]},
+    {"id":"vision-mixed-positive","reply":"我不能联网，不过截图发过来我可以帮你看","expected":["vision_claim"]},
+    {"id":"vision-mixed-refusal","reply":"我不能读取图片，所以截图发过来我也看不到内容","expected":[]},
+    {"id":"memory-write-direct","reply":"我会帮你把这条存进长期记忆","expected":["memory_write_claim"]},
+    {"id":"memory-write-complete","reply":"已经替你记下了，以后我都会记得","expected":["memory_write_claim"]},
+    {"id":"memory-write-refusal","reply":"我没有长期记忆写入权限，没办法替你记下这条规则","expected":[]},
+    {"id":"memory-write-advice","reply":"我可以告诉你如何在 Workbench 保存长期记忆","expected":[]},
+    {"id":"external-data-direct","reply":"我这就帮你查一下最新天气","expected":["external_data_claim"]},
+    {"id":"external-data-complete","reply":"我刚刚上网查过了","expected":["external_data_claim"]},
+    {"id":"external-data-refusal","reply":"我没有实时联网查询能力，查不到最新天气","expected":[]},
+    {"id":"external-data-user-search","reply":"你可以打开天气页面自己查一下","expected":[]},
+    {"id":"system-restart-direct","reply":"我这就替你重启 Minecraft 服务器","expected":["system_administration_claim"]},
+    {"id":"system-restart-complete","reply":"Minecraft 服务器已经重启好了","expected":["system_administration_claim"]},
+    {"id":"system-refusal","reply":"工具和外部操作都不可用，没办法替你重启任何服务器","expected":[]},
+    {"id":"system-advice","reply":"我可以告诉你怎么重启 Minecraft 服务器","expected":[]},
+    {"id":"system-mixed-positive","reply":"我可以先告诉你步骤，然后我会重启 Minecraft 服务器","expected":["system_administration_claim"]},
+    {"id":"ordinary-fictional-action","reply":"好哦，我过来坐近一点","expected":[]}
+  ]
+}

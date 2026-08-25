@@ -1,0 +1,37 @@
+[Unit]
+Description=Myuna Owner Profile read-only v1 worker
+Requires=myuna-owner-profile-read-v1.socket
+After=local-fs.target
+
+[Service]
+Type=simple
+User=myuna_owner_profile
+Group=myuna_owner_profile
+EnvironmentFile=/etc/myuna-owner-profile-read-v1/selector.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -m myuna_core.owner_profile.socket_worker
+Restart=on-failure
+RestartSec=3s
+UMask=0077
+TasksMax=32
+MemoryMax=128M
+CPUQuota=25%
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+PrivateNetwork=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX
+ReadOnlyPaths=/var/lib/myuna-owner-profile-v1 /var/lib/myuna-owner-profile-write-v1

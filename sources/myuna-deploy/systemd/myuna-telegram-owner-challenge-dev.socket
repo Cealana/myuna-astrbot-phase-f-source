@@ -1,0 +1,17 @@
+[Unit]
+Description=Myuna Owner Telegram one-time challenge socket (dev)
+Documentation=file:@GATEWAY_RELEASE_ROOT@/docs/ADR-033-astrbot-telegram-owner-runtime-v1.md
+ConditionPathExists=/etc/myuna-telegram-gateway/challenge-approved
+ConditionPathExists=/etc/myuna-telegram-gateway/owner-challenge-v1.json
+
+[Socket]
+ListenStream=/run/myuna-telegram-gateway/challenge.sock
+SocketUser=root
+SocketGroup=myuna-gateway-telegram
+SocketMode=0660
+DirectoryMode=0750
+Accept=no
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

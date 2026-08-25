@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "unit": "characters",
+  "minimum_model_input_headroom_characters": 65536,
+  "profiles": {
+    "legacy-v5-observed": {
+      "definition_prompt_max_characters": 110000,
+      "model_input_max_characters": 200000,
+      "status": "documentation-only-current-baseline"
+    },
+    "v6-v7-initial": {
+      "definition_prompt_max_characters": 300000,
+      "model_input_max_characters": 400000,
+      "status": "offline-qa-only"
+    },
+    "contract-ceiling": {
+      "definition_prompt_max_characters": 524288,
+      "model_input_max_characters": 700000,
+      "status": "code-ceiling-not-an-activation-profile"
+    }
+  },
+  "activation": {
+    "automatic": false,
+    "requires_immutable_core_release": true,
+    "requires_definition_route_measurement": true,
+    "requires_provider_context_verification": true,
+    "changes_short_term_context_window": false
+  }
+}

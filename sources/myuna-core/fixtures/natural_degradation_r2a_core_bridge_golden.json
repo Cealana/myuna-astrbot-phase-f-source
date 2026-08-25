@@ -1,0 +1,152 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "code": "core_request_rejected",
+      "category": "core_or_gateway_failure",
+      "detail": "core-request-rejected",
+      "retryable": false,
+      "owner_action_required": true
+    },
+    {
+      "code": "reply_contract_rejected",
+      "category": "reply_contract_rejected",
+      "detail": "reply-contract-rejected",
+      "retryable": true,
+      "owner_action_required": false
+    },
+    {
+      "code": "reply_runtime_guard_rejected",
+      "category": "reply_contract_rejected",
+      "detail": "reply-runtime-guard-rejected",
+      "retryable": true,
+      "owner_action_required": false
+    },
+    {
+      "code": "provider_transport_failure",
+      "category": "provider_transient_failure",
+      "detail": "provider-transport-failure",
+      "retryable": true,
+      "owner_action_required": false
+    },
+    {
+      "code": "provider_rate_limited",
+      "category": "provider_transient_failure",
+      "detail": "provider-rate-limited",
+      "retryable": true,
+      "owner_action_required": false
+    },
+    {
+      "code": "provider_upstream_failure",
+      "category": "provider_transient_failure",
+      "detail": "provider-upstream-failure",
+      "retryable": true,
+      "owner_action_required": false
+    },
+    {
+      "code": "provider_invalid_response",
+      "category": "provider_transient_failure",
+      "detail": "provider-invalid-response",
+      "retryable": true,
+      "owner_action_required": false
+    },
+    {
+      "code": "provider_request_rejected",
+      "category": "core_or_gateway_failure",
+      "detail": "provider-request-rejected",
+      "retryable": false,
+      "owner_action_required": true
+    },
+    {
+      "code": "provider_authentication_failed",
+      "category": "provider_budget_or_auth_failure",
+      "detail": "provider-authentication-failed",
+      "retryable": false,
+      "owner_action_required": true
+    },
+    {
+      "code": "provider_insufficient_balance",
+      "category": "provider_budget_or_auth_failure",
+      "detail": "provider-insufficient-balance",
+      "retryable": false,
+      "owner_action_required": true
+    },
+    {
+      "code": "provider_daily_budget_exceeded",
+      "category": "provider_budget_or_auth_failure",
+      "detail": "provider-daily-budget-exceeded",
+      "retryable": false,
+      "owner_action_required": true
+    },
+    {
+      "code": "provider_budget_accounting_failed",
+      "category": "core_or_gateway_failure",
+      "detail": "provider-budget-accounting-failed",
+      "retryable": false,
+      "owner_action_required": true
+    },
+    {
+      "code": "local_provider_timeout",
+      "category": "provider_transient_failure",
+      "detail": "local-provider-timeout",
+      "retryable": true,
+      "owner_action_required": false
+    },
+    {
+      "code": "local_provider_busy",
+      "category": "provider_transient_failure",
+      "detail": "local-provider-busy",
+      "retryable": true,
+      "owner_action_required": false
+    },
+    {
+      "code": "local_model_not_ready",
+      "category": "core_or_gateway_failure",
+      "detail": "local-model-not-ready",
+      "retryable": false,
+      "owner_action_required": true
+    },
+    {
+      "code": "local_provider_unavailable",
+      "category": "provider_transient_failure",
+      "detail": "local-provider-unavailable",
+      "retryable": true,
+      "owner_action_required": false
+    },
+    {
+      "code": "local_provider_http_rejected",
+      "category": "core_or_gateway_failure",
+      "detail": "local-provider-http-rejected",
+      "retryable": false,
+      "owner_action_required": true
+    },
+    {
+      "code": "local_provider_endpoint_rejected",
+      "category": "core_or_gateway_failure",
+      "detail": "local-provider-endpoint-rejected",
+      "retryable": false,
+      "owner_action_required": true
+    },
+    {
+      "code": "owner_memory_read_failed",
+      "category": "memory_service_failure",
+      "detail": "owner-memory-read-failed",
+      "retryable": true,
+      "owner_action_required": false
+    },
+    {
+      "code": "core_runtime_not_ready",
+      "category": "core_or_gateway_failure",
+      "detail": "core-runtime-not-ready",
+      "retryable": false,
+      "owner_action_required": true
+    },
+    {
+      "code": "core_runtime_fail_closed",
+      "category": "core_or_gateway_failure",
+      "detail": "core-runtime-fail-closed",
+      "retryable": true,
+      "owner_action_required": false
+    }
+  ]
+}

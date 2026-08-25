@@ -1,0 +1,37 @@
+[Unit]
+Description=Myuna Definition v5 DeepSeek Golden staging evaluation
+Documentation=file:/srv/myuna/repos/core/docs/provider-dev-deepseek-contract.md
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/myuna/secrets/deepseek-api-key
+ConditionPathExists=/etc/myuna/capabilities/dev-v1.json
+ConditionPathExists=/srv/myuna/repos/definition/staging/v5/2755db85ca7e-b1-dbc4b229-g9f993b18-a95b4a017-te2e33bb3/evidence/build-summary.json
+
+[Service]
+Type=oneshot
+User=myuna
+Group=myuna
+WorkingDirectory=/srv/myuna/repos/core
+Environment=PYTHONPATH=/srv/myuna/repos/core/src
+EnvironmentFile=/etc/myuna/dev.env
+LoadCredential=deepseek_api_key:/etc/myuna/secrets/deepseek-api-key
+ExecStart=/usr/bin/env MYUNA_PROVIDER_LIVE_CALLS_ENABLED=true /usr/bin/python3 /srv/myuna/repos/core/scripts/run_deepseek_golden_v5.py --definition-root /srv/myuna/repos/definition/staging/v5/2755db85ca7e-b1-dbc4b229-g9f993b18-a95b4a017-te2e33bb3 --capability-manifest /etc/myuna/capabilities/dev-v1.json --data-dir /var/lib/myuna/dev --log-dir /var/log/myuna/dev/golden-v5 --output-root /var/lib/myuna/dev/golden-evaluations/v5
+TimeoutStartSec=900
+UMask=0077
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadOnlyPaths=/srv/myuna/repos/definition/staging/v5/2755db85ca7e-b1-dbc4b229-g9f993b18-a95b4a017-te2e33bb3
+ReadOnlyPaths=/etc/myuna/capabilities/dev-v1.json
+ReadWritePaths=/var/lib/myuna/dev /var/log/myuna/dev

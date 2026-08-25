@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "request_cases": [
+    {
+      "id": "ambiguous-reminder",
+      "text": "明天晚上八点提醒我重启服务器",
+      "expected": "scheduled_notification_unavailable"
+    },
+    {
+      "id": "explicit-reminder",
+      "text": "请设置一个定时任务，明天晚上八点主动通过 QQ 提醒我重启服务器",
+      "expected": "scheduled_notification_unavailable"
+    },
+    {
+      "id": "memory-write",
+      "text": "请把我每周二会喝橙汁写进长期记忆",
+      "expected": "memory_write_unavailable"
+    },
+    {
+      "id": "vision",
+      "text": "如果我发一张图片，你能看懂里面是什么吗",
+      "expected": "vision_unavailable"
+    },
+    {
+      "id": "external-data",
+      "text": "请查一下杭州明天的天气和降雨概率",
+      "expected": "external_data_unavailable"
+    },
+    {
+      "id": "external-action",
+      "text": "帮我现在重启一下 Minecraft 服务器",
+      "expected": "external_action_unavailable"
+    },
+    {
+      "id": "architecture-advice",
+      "text": "我们应该如何设计未来的提醒系统架构",
+      "expected": null
+    }
+  ],
+  "tail_cases": [
+    {
+      "id": "mechanical-menu",
+      "category": "scheduled_notification_unavailable",
+      "reply": "## 现在能做到的\n- 正常聊天\n- 读取记忆\n## 还做不到的\n- 定时提醒",
+      "expected": ["mechanical_capability_menu"]
+    },
+    {
+      "id": "memory-tail-overpromise",
+      "category": "memory_write_unavailable",
+      "reply": "现在还不能写入记忆哦，需要的时候问我，我会帮你想起来的",
+      "expected": ["unstored_future_recall_overpromise"]
+    },
+    {
+      "id": "vision-mechanism-guess",
+      "category": "vision_unavailable",
+      "reply": "我现在还不能识别图片，只会收到一张没有内容的占位符",
+      "expected": ["unverified_image_transport_mechanism"]
+    },
+    {
+      "id": "weather-cross-vision",
+      "category": "external_data_unavailable",
+      "reply": "我不能查实时天气，不过截图发过来我可以帮你看",
+      "expected": ["vision_claim", "cross_capability_visual_suggestion"]
+    },
+    {
+      "id": "clean-weather",
+      "category": "external_data_unavailable",
+      "reply": "我现在不能查询实时外部数据，所以不能替你确认最新结果",
+      "expected": []
+    }
+  ]
+}

@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "manifest_id": "myuna-dev-capabilities-20260715-v1",
+  "environment": "dev",
+  "definition": {
+    "version": "v5",
+    "build_id": "2755db85ca7e-b1-dbc4b229-g9f993b18-a95b4a017-te2e33bb3",
+    "release_active": false
+  },
+  "service": {
+    "core_active": false,
+    "external_listener_enabled": false,
+    "response_scope": "synthetic_staging_only"
+  },
+  "capabilities": {
+    "conversation": {
+      "enabled": true,
+      "scope": "approved synthetic Golden and policy smoke tests only",
+      "reason": "the user approved the v5 test contract and bounded provider testing"
+    },
+    "long_term_memory_read": {
+      "enabled": false,
+      "scope": "none",
+      "reason": "real personal memory has not been imported or activated"
+    },
+    "long_term_memory_write": {
+      "enabled": false,
+      "scope": "none",
+      "reason": "real personal memory writes remain a later explicit gate"
+    },
+    "vision": {
+      "enabled": false,
+      "scope": "none",
+      "reason": "multimodal routing is reserved but no vision provider is deployed"
+    },
+    "tools": {
+      "enabled": false,
+      "scope": "none",
+      "reason": "tool registry and permissions are not activated"
+    },
+    "external_data": {
+      "enabled": false,
+      "scope": "none",
+      "reason": "no web, channel, or external data connector is attached"
+    },
+    "external_actions": {
+      "enabled": false,
+      "scope": "none",
+      "reason": "Golden and Shadow evaluation cannot create side effects"
+    },
+    "system_administration": {
+      "enabled": false,
+      "scope": "none",
+      "reason": "models never receive Windows, Linux, Minecraft, network, or database authority"
+    },
+    "qq_channel": {
+      "enabled": false,
+      "scope": "none",
+      "reason": "AstrBot is a reserved future gateway and is not installed"
+    }
+  },
+  "models": {
+    "default": {
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "thinking": "disabled"
+    },
+    "persona_escalation": {
+      "provider": "deepseek",
+      "model": "deepseek-v4-pro",
+      "thinking": "disabled"
+    }
+  },
+  "routing": {
+    "max_repair_attempts": 1,
+    "fast_failures_before_escalation": 2,
+    "pro_task_classes": [
+      "definition_change",
+      "canon_conflict",
+      "relationship_boundary"
+    ],
+    "high_risk_uses_escalation": true
+  },
+  "authorizations": {
+    "release_activation": false,
+    "service_activation": false,
+    "real_memory": false,
+    "tools": false,
+    "external_network_listener": false
+  },
+  "source_adrs": [
+    "ADR-010-deepseek-persona-routing.md"
+  ]
+}

@@ -1,0 +1,30 @@
+\set ON_ERROR_STOP on
+
+SELECT 'CREATE ROLE myuna_dev_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE '
+       'NOREPLICATION NOBYPASSRLS'
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'myuna_dev_owner')
+\gexec
+
+SELECT 'CREATE ROLE myuna_dev_app LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE '
+       'NOREPLICATION NOBYPASSRLS CONNECTION LIMIT 10'
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'myuna_dev_app')
+\gexec
+
+ALTER ROLE myuna_dev_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
+    NOREPLICATION NOBYPASSRLS;
+ALTER ROLE myuna_dev_app LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE
+    NOREPLICATION NOBYPASSRLS CONNECTION LIMIT 10;
+
+SELECT 'CREATE DATABASE myuna_dev OWNER myuna_dev_owner TEMPLATE template0 '
+       'ENCODING ''UTF8'' LOCALE_PROVIDER libc LOCALE ''C.UTF-8'''
+WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'myuna_dev')
+\gexec
+
+ALTER DATABASE myuna_dev OWNER TO myuna_dev_owner;
+REVOKE ALL ON DATABASE myuna_dev FROM PUBLIC;
+GRANT ALL ON DATABASE myuna_dev TO myuna_dev_owner;
+GRANT CONNECT ON DATABASE myuna_dev TO myuna_dev_app;
+ALTER DATABASE myuna_dev SET timezone TO 'Asia/Shanghai';
+ALTER DATABASE myuna_dev SET search_path TO pg_catalog, memory, extensions;
+ALTER DATABASE myuna_dev SET myuna.environment TO 'dev';
+ALTER DATABASE myuna_dev SET myuna.synthetic_only TO 'on';

@@ -1,0 +1,43 @@
+[Unit]
+Description=Myuna local Owner-private model provider v1
+Documentation=file:/srv/myuna/repos/deploy/docs/ADR-055-owner-profile-local-provider-boundary-v1.md
+After=local-fs.target
+Before=myuna-core@qq.service
+
+[Service]
+Type=simple
+User=myuna_local_provider
+Group=myuna_local_provider
+WorkingDirectory=/
+Environment=LD_LIBRARY_PATH=/opt/myuna/local-provider-v1/releases/b10217-b79145bfa48f4fef83e76e1cef7ef4fbdf966e497a2fd774f1107fc2a24500af
+Environment=LLAMA_ARG_OFFLINE=1
+ExecStart=/opt/myuna/local-provider-v1/releases/b10217-b79145bfa48f4fef83e76e1cef7ef4fbdf966e497a2fd774f1107fc2a24500af/llama-server --model /var/lib/myuna-local-provider-v1/models/qwen3-4b-q4-k-m-7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5/model.gguf --alias myuna-local-owner-v1 --host 127.0.0.1 --port 879 --ctx-size 8192 --threads 6 --threads-batch 6 --threads-http 2 --parallel 1 --batch-size 512 --ubatch-size 128 --jinja --reasoning off --no-webui --no-slots --offline --timeout 120 --no-cache-prompt --log-disable
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=180s
+TimeoutStopSec=30s
+UMask=0077
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+RestrictAddressFamilies=AF_UNIX AF_INET
+IPAddressDeny=any
+IPAddressAllow=localhost
+MemoryMax=8G
+TasksMax=64
+LimitNOFILE=4096
+ReadOnlyPaths=/opt/myuna/local-provider-v1 /var/lib/myuna-local-provider-v1/models
+
+[Install]
+WantedBy=multi-user.target

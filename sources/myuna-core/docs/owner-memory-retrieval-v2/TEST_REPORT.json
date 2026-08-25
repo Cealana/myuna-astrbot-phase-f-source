@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "candidate": "owner-memory-retrieval-v2-candidate-20260721",
+  "status": "passed_isolated_not_installed_not_active",
+  "generated_at": "2026-07-21T01:16:14.4023951+08:00",
+  "policy_version": "owner-memory-retrieval-v2-deterministic-zh-candidate",
+  "synthetic_validation": {
+    "passed": 26,
+    "failed": 0,
+    "scope": [
+      "query_planner",
+      "boundary_filter",
+      "field_scoring",
+      "diversity_selection",
+      "socket_protocol",
+      "core_adapter"
+    ]
+  },
+  "live_safe_view_validation": {
+    "passed": 21,
+    "failed": 0,
+    "safe_record_count": 12,
+    "database_role": "myuna_memory_runtime",
+    "restricted_included": false,
+    "query_text_printed": false,
+    "memory_text_printed": false,
+    "memory_write_performed": false,
+    "model_called": false
+  },
+  "regressions_closed": [
+    "long_natural_recall_query_now_selects_M001",
+    "short_equivalent_recall_query_now_selects_M001",
+    "unknown_key_location_returns_empty",
+    "unrecorded_exact_quote_returns_empty",
+    "unrecorded_rationale_returns_empty",
+    "imperative_remember_request_returns_empty",
+    "memory_database_port_question_returns_empty"
+  ],
+  "runtime_observation": {
+    "v1_core_active": true,
+    "v1_memory_socket_active": true,
+    "v1_memory_service_active": true,
+    "v2_installed": false,
+    "v2_systemd_unit_created": false,
+    "online_runtime_modified": false
+  }
+}
