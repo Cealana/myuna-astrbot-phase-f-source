@@ -2382,7 +2382,13 @@ def process_connection(
                     _audit_stage("control_trusted_time_unresolved")
             messages = (
                 [{"role": "user", "content": decision.message_text}]
-                if diary_control or benchmark_control or profile_v2_control or check_control
+                if (
+                    use_hybrid
+                    or diary_control
+                    or benchmark_control
+                    or profile_v2_control
+                    or check_control
+                )
                 else history.request_messages(
                     decision.conversation_id,
                     decision.message_text,

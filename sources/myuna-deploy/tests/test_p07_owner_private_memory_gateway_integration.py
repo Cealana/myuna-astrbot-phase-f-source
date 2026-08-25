@@ -614,6 +614,17 @@ class OwnerPrivateMemoryGatewayIntegrationTests(unittest.TestCase):
                 memory.initialize()
             core = SyntheticCore(selected_config)
             outcomes = []
+            history_store = InMemoryContextStore()
+            history_store.save(
+                envelope["event"]["conversation_id"],
+                [
+                    {"role": "user", "content": "Synthetic earlier Owner turn"},
+                    {
+                        "role": "assistant",
+                        "content": "Synthetic earlier assistant reply",
+                    },
+                ],
+            )
 
             def send_temporal(payload):
                 return temporal_response(
@@ -644,7 +655,7 @@ class OwnerPrivateMemoryGatewayIntegrationTests(unittest.TestCase):
                     history=ConversationHistory(
                         128,
                         131_072,
-                        store=InMemoryContextStore(),
+                        store=history_store,
                     ),
                     hybrid_enabled=True,
                     memory_runtime=memory,
