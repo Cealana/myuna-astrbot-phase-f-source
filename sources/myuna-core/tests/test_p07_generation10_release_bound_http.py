@@ -23,6 +23,7 @@ from myuna_core.external_context.contracts import (
     current_message_digest,
 )
 from myuna_core.external_context.lifecycle_v3 import ReleaseBoundExternalContext
+from myuna_core.episodic_memory.runtime_context import RUNTIME_CONTEXT_SCHEMA
 from myuna_core.http_api import build_server
 from myuna_core.http_client_auth import LoadedHttpClientCredential
 
@@ -227,6 +228,18 @@ class Generation10ReleaseBoundHttpTests(unittest.TestCase):
         self.assertEqual(response["reply"], "synthetic reply")
         self.assertEqual(len(self.hybrid.calls), 1)
         self.assertEqual(self.hybrid.calls[0][1], wrapped)
+
+    def test_episodic_runtime_message_reaches_hybrid_engine(self) -> None:
+        episodic = {
+            "schema": RUNTIME_CONTEXT_SCHEMA,
+            "current_message": MESSAGE,
+            "policy_overlay_id": POLICY_OVERLAY_ID,
+        }
+        status, response = self.send(episodic)
+        self.assertEqual(status, 200)
+        self.assertEqual(response["reply"], "synthetic reply")
+        self.assertEqual(len(self.hybrid.calls), 1)
+        self.assertEqual(self.hybrid.calls[0][1], episodic)
 
     def test_reflective_diary_endpoint_is_telegram_scoped_and_exactly_shaped(self) -> None:
         body = json.dumps({"diary_job": {"schema": "synthetic-diary-job"}}).encode(

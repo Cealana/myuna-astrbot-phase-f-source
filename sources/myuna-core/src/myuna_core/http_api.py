@@ -41,6 +41,7 @@ from .external_context.lifecycle_v3 import (
     ReleaseBoundExternalContext,
     ReleaseBoundLifecycleRejected,
 )
+from .episodic_memory.runtime_context import RUNTIME_CONTEXT_SCHEMA
 from .providers import BudgetAccountingError, BudgetExceededError, ProviderError
 from .router import ModelRouter
 
@@ -161,6 +162,8 @@ def _parse_hybrid_chat_envelope(
                 "release-bound external context policy overlay was rejected"
             )
         current_message = release_bound_context.envelope.current_message
+    elif external_context.get("schema") == RUNTIME_CONTEXT_SCHEMA:
+        current_message = external_context.get("current_message")
     elif {
         "external_context",
         "policy_overlay_id",
