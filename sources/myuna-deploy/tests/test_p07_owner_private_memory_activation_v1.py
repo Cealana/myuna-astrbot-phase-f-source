@@ -1649,8 +1649,13 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
         selected = authority()
         frozen = copy.deepcopy(selected)
         frozen.pop("authority_sha256")
-        frozen["source"]["deploy_commit"] = product.ATTEMPT5_PRODUCT_DEPLOY_COMMIT
-        frozen["source"]["deploy_parent"] = product.ATTEMPT5_PRODUCT_DEPLOY_PARENT
+        frozen["source"] = {
+            "core_commit": product.ATTEMPT5_PRODUCT_CORE_COMMIT,
+            "core_tree": product.ATTEMPT5_PRODUCT_CORE_TREE,
+            "deploy_commit": product.ATTEMPT5_PRODUCT_DEPLOY_COMMIT,
+            "deploy_parent": product.ATTEMPT5_PRODUCT_DEPLOY_PARENT,
+            "deploy_tree": product.ATTEMPT5_PRODUCT_DEPLOY_TREE,
+        }
         frozen_digest = product.digest("phase_f_fixed_source", frozen)
         frozen_envelope = {
             **frozen,
@@ -1659,10 +1664,8 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
         }
         current_release = "c" * 64
         current_envelope = {
+            **copy.deepcopy(selected),
             "release_sha256": current_release,
-            "source": {
-                "deploy_parent": product.ACCEPTED_DEPLOY_PARENT,
-            },
         }
         with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
             module,
@@ -1701,7 +1704,6 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
         varied_release = "d" * 64
         varied_current = {
             **current_envelope,
-            "authority_sha256": "e" * 64,
             "release_sha256": varied_release,
         }
         with mock.patch.object(
@@ -3047,11 +3049,19 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
         plan, selected, old_payloads = self.make_plan(selected_present=True)
         effects = FixedEffects(selected, old_payloads, plan["observation"])
         exact = effects.container(product.CONTAINER_NAME)
-        with mock.patch.object(module, "_container_or_absent", return_value=exact):
+        with mock.patch.object(
+            product,
+            "_selected_root_phase_authority",
+            return_value={"phase": "PRE_WRITER"},
+        ), mock.patch.object(module, "_container_or_absent", return_value=exact):
             self.assertEqual(module._old_container_observation()["state"], "TARGET")
         stopped = copy.deepcopy(exact)
         stopped["active"] = False
-        with mock.patch.object(module, "_container_or_absent", return_value=stopped):
+        with mock.patch.object(
+            product,
+            "_selected_root_phase_authority",
+            return_value={"phase": "PRE_WRITER"},
+        ), mock.patch.object(module, "_container_or_absent", return_value=stopped):
             observed = module._old_container_observation()
         self.assertEqual(observed["state"], "TARGET")
         self.assertFalse(observed["active"])
@@ -3075,6 +3085,10 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
             hostile = copy.deepcopy(stopped)
             hostile[field] = value
             with self.subTest(field=field), mock.patch.object(
+                product,
+                "_selected_root_phase_authority",
+                return_value={"phase": "PRE_WRITER"},
+            ), mock.patch.object(
                 module, "_container_or_absent", return_value=hostile
             ):
                 self.assertEqual(
@@ -3083,7 +3097,11 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
                 )
         missing = copy.deepcopy(stopped)
         missing.pop("command_digest")
-        with mock.patch.object(module, "_container_or_absent", return_value=missing):
+        with mock.patch.object(
+            product,
+            "_selected_root_phase_authority",
+            return_value={"phase": "PRE_WRITER"},
+        ), mock.patch.object(module, "_container_or_absent", return_value=missing):
             self.assertEqual(
                 module._old_container_observation()["state"],
                 "THIRD_STATE",
@@ -3098,16 +3116,26 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
         ]["payload_sha256"]
         exact = {
             "active": False,
-            "identity": "target-object",
+            "identity": product.ATTEMPT5_DURABILITY_TARGET_CONTAINER_ID,
             "image": selected["image"]["reference"],
             "name": product.CONTAINER_NAME,
             "network_names": [product.NETWORK_NAME],
             "plan_digest": "f" * 64,
             "policy": module.PRE_DISPATCH_POLICY,
+            "projection_sha256": product.ATTEMPT5_DURABILITY_TARGET_PROJECTION_SHA256,
             "project": module.resume.COMPOSE_PROJECT,
             "service": module.resume.COMPOSE_SERVICE,
             "target_config_digest": target_config,
             "user": product.TARGET_USER,
+        }
+        rollback = {
+            "active": False,
+            "identity": product.ATTEMPT5_SOURCE_COMMAND_ROLLBACK_CONTAINER_ID,
+            "name": product.ATTEMPT5_SOURCE_COMMAND_ROLLBACK_NAME,
+            "policy": module.PRE_DISPATCH_POLICY,
+            "projection_sha256": (
+                product.ATTEMPT5_SOURCE_COMMAND_ROLLBACK_PROJECTION_SHA256
+            ),
         }
         with mock.patch.object(module, "_command", return_value=""), mock.patch.object(
             module, "_container_or_absent"
@@ -3118,9 +3146,19 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
         self.assertIsNone(absent["identity"])
 
         with mock.patch.object(
-            module, "_command", return_value=product.CONTAINER_NAME
+            module,
+            "_command",
+            return_value=(
+                product.CONTAINER_NAME
+                + "\n"
+                + product.ATTEMPT5_SOURCE_COMMAND_ROLLBACK_NAME
+            ),
         ), mock.patch.object(
-            module, "_container_or_absent", return_value=exact
+            module,
+            "_container_or_absent",
+            side_effect=lambda name: (
+                exact if name == product.CONTAINER_NAME else rollback
+            ),
         ):
             current = module._target_container_observation(selected)
         self.assertEqual(current["state"], "TARGET")
@@ -3133,8 +3171,8 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
             module, "_container_or_absent", return_value=elsewhere
         ):
             displaced = module._target_container_observation(selected)
-        self.assertEqual(displaced["state"], "TARGET")
-        self.assertNotEqual(displaced["name"], product.CONTAINER_NAME)
+        self.assertEqual(displaced["state"], "THIRD_STATE")
+        self.assertEqual(displaced["name"], product.CONTAINER_NAME)
 
         with mock.patch.object(
             module, "_command", return_value="target-a\ntarget-b"
@@ -3142,6 +3180,207 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
             ambiguous = module._target_container_observation(selected)
         self.assertEqual(ambiguous["state"], "THIRD_STATE")
         self.assertIsNone(ambiguous["identity"])
+
+    def durability_plan(
+        self,
+        *,
+        socket_active: bool = False,
+        target_active: bool = False,
+    ) -> tuple[dict[str, object], dict[str, object]]:
+        plan, selected, _old_payloads = self.make_plan(
+            files_old=False,
+            selected_present=True,
+        )
+        current = copy.deepcopy(plan["observation"])
+        current["services"] = {
+            "core": {
+                "active": True,
+                "identity": current["services"]["core"]["identity"],
+            },
+            "runtime": {
+                "active": False,
+                "identity": current["services"]["runtime"]["identity"],
+            },
+            "socket": {
+                "active": socket_active,
+                "identity": current["services"]["socket"]["identity"],
+            },
+        }
+        current["archive_name"] = {
+            "identity": None,
+            "name": plan["archive_name"],
+            "projection_sha256": None,
+            "state": "OLD",
+        }
+        current["old_container"] = {
+            "active": False,
+            "identity": product.ATTEMPT5_SOURCE_COMMAND_ROLLBACK_CONTAINER_ID,
+            "name": product.ATTEMPT5_SOURCE_COMMAND_ROLLBACK_NAME,
+            "policy": module.PRE_DISPATCH_POLICY,
+            "state": "TARGET",
+        }
+        current["target_container"] = {
+            "active": target_active,
+            "identity": product.ATTEMPT5_DURABILITY_TARGET_CONTAINER_ID,
+            "name": product.CONTAINER_NAME,
+            "policy": module.PRE_DISPATCH_POLICY,
+            "state": "TARGET",
+        }
+        current["archive_root"]["selected_state"] = "TARGET"
+        current["network"]["member_ids"] = (
+            [product.ATTEMPT5_DURABILITY_TARGET_CONTAINER_ID]
+            if target_active
+            else []
+        )
+        return product.build_fixed_plan(selected, current), selected
+
+    def test_post_writer_durability_prefix_tuple_is_exact_and_callback_free(
+        self,
+    ) -> None:
+        phase = {
+            "attempt": 5,
+            "attempt_consumed": True,
+            "writer_bound": True,
+            "attempt6_absent": True,
+        }
+        cases = (
+            (False, False, "POST_WRITER_DURABILITY_SOCKET_REQUIRED"),
+            (True, False, "POST_WRITER_DURABILITY_TARGET_START_REQUIRED"),
+            (True, True, "POST_WRITER_DURABILITY_TARGET"),
+        )
+        for socket_active, target_active, prefix in cases:
+            plan, _selected = self.durability_plan(
+                socket_active=socket_active,
+                target_active=target_active,
+            )
+            with self.subTest(prefix=prefix), mock.patch.object(
+                product, "_selected_root_phase_authority", return_value=phase
+            ), mock.patch.object(
+                module, "_effective_units_state", return_value="TARGET"
+            ):
+                self.assertEqual(module._checkpoint_prefix(plan), prefix)
+                observed = module.run_checkpointed_stage(
+                    plan,
+                    requested_stage=None,
+                    supervised_start=False,
+                )
+            self.assertEqual(observed["callbacks"], 0)
+            self.assertTrue(observed["writer_boundary"])
+            self.assertEqual(
+                observed["next_stage"], product.CHECKPOINT_NEXT_STAGE[prefix]
+            )
+
+        base, _selected = self.durability_plan(socket_active=True)
+        hostile_rows = (
+            ("target_container", "identity", "substituted-target"),
+            ("target_container", "name", "substituted-name"),
+            ("target_container", "policy", "always"),
+            ("old_container", "identity", "substituted-rollback"),
+            ("old_container", "name", "substituted-rollback-name"),
+            ("old_container", "active", True),
+        )
+        for role, field, value in hostile_rows:
+            hostile = copy.deepcopy(base)
+            hostile["observation"][role][field] = value
+            hostile["plan_sha256"] = product.digest(
+                "phase_f_fixed_plan",
+                {key: hostile[key] for key in hostile if key != "plan_sha256"},
+            )
+            with self.subTest(role=role, field=field), mock.patch.object(
+                product, "_selected_root_phase_authority", return_value=phase
+            ), mock.patch.object(
+                module, "_effective_units_state", return_value="TARGET"
+            ), self.assertRaises(
+                (module.MemoryActivationRejected, product.ProductionPlanRejected)
+            ):
+                module._checkpoint_prefix(hostile)
+
+        for phase_field, value in (
+            ("attempt", 6),
+            ("attempt_consumed", False),
+            ("writer_bound", False),
+            ("attempt6_absent", False),
+        ):
+            hostile_phase = dict(phase, **{phase_field: value})
+            with self.subTest(phase_field=phase_field), mock.patch.object(
+                product,
+                "_selected_root_phase_authority",
+                return_value=hostile_phase,
+            ), mock.patch.object(
+                module, "_effective_units_state", return_value="TARGET"
+            ), self.assertRaises(module.MemoryActivationRejected):
+                module._checkpoint_prefix(base)
+
+    def test_post_writer_durability_resume_never_replays_fence_or_dispatch(
+        self,
+    ) -> None:
+        before, _selected = self.durability_plan(socket_active=True)
+        after, _selected = self.durability_plan(
+            socket_active=True,
+            target_active=True,
+        )
+        with mock.patch.object(
+            module,
+            "_checkpoint_prefix",
+            side_effect=(
+                "POST_WRITER_DURABILITY_TARGET_START_REQUIRED",
+                "POST_WRITER_DURABILITY_TARGET",
+            ),
+        ), mock.patch.object(
+            module, "_fresh_checkpoint_plan", return_value=after
+        ), mock.patch.object(module, "_start_target_once") as start, mock.patch.object(
+            module, "_set_target_policy"
+        ) as policy:
+            result = module.run_checkpointed_stage(
+                before,
+                requested_stage="RESUME_ATTEMPT5_TARGET_ONCE",
+                supervised_start=True,
+            )
+        start.assert_called_once_with(
+            before,
+            product.ATTEMPT5_DURABILITY_TARGET_CONTAINER_ID,
+        )
+        policy.assert_not_called()
+        self.assertEqual(result["callbacks"], 1)
+        self.assertEqual(result["reason"], "durability_target_verified")
+        self.assertEqual(result["prefix_after"], "POST_WRITER_DURABILITY_TARGET")
+
+        for observed_prefix, expected_reason in (
+            (
+                "POST_WRITER_DURABILITY_TARGET",
+                "durability_lost_return_reobserved_target",
+            ),
+            (
+                "POST_WRITER_DURABILITY_TARGET_START_REQUIRED",
+                "durability_target_start_failed_no_redispatch",
+            ),
+        ):
+            with self.subTest(observed_prefix=observed_prefix), mock.patch.object(
+                module,
+                "_checkpoint_prefix",
+                side_effect=(
+                    "POST_WRITER_DURABILITY_TARGET_START_REQUIRED",
+                    observed_prefix,
+                ),
+            ), mock.patch.object(
+                module, "_fresh_checkpoint_plan", return_value=after
+            ), mock.patch.object(
+                module,
+                "_start_target_once",
+                side_effect=module.MemoryActivationRejected("lost-return"),
+            ) as lost_start, mock.patch.object(
+                module, "_set_target_policy"
+            ) as policy:
+                lost = module.run_checkpointed_stage(
+                    before,
+                    requested_stage="RESUME_ATTEMPT5_TARGET_ONCE",
+                    supervised_start=True,
+                )
+            lost_start.assert_called_once()
+            policy.assert_not_called()
+            self.assertEqual(lost["callbacks"], 1)
+            self.assertEqual(lost["reason"], expected_reason)
+            self.assertIsNone(lost["next_stage"])
 
     def test_running_and_stopped_old_network_membership_are_state_specific(
         self,

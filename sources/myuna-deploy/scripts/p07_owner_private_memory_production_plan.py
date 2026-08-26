@@ -20,7 +20,7 @@ SOURCE_SCHEMA = "myuna.phase-f.fixed-product-source-authority.v1"
 OBSERVATION_SCHEMA = "myuna.phase-f.fixed-product-observation.v1"
 PLAN_SCHEMA = "myuna.phase-f.fixed-product-plan.v1"
 RESULT_SCHEMA = "myuna.phase-f.fixed-product-result.v1"
-ACCEPTED_DEPLOY_PARENT = "5f6e32c4abc0f7e23c29cdda94cb675ebf0d077b"
+ACCEPTED_DEPLOY_PARENT = "e321bcce7c673afebf1c92c05bb2bc4828784b35"
 ACCEPTED_CORE_COMMIT = "4c13c0b20552b5d8a8720f180d0569405fed00b0"
 ACCEPTED_CORE_TREE = "e43ae07babf5a448525d1035d400a37fde374a2b"
 HYBRID_BUILDER_BLOB = "2c92a5f7d995fd08ed658d4cc905a6db6dd2ac65"
@@ -76,6 +76,9 @@ ATTEMPT5_PRODUCT_CONTROLLER_RELEASE = (
 )
 ATTEMPT5_PRODUCT_DEPLOY_COMMIT = "a4a16a4f14ec3c762427a7b21de97f5af9910464"
 ATTEMPT5_PRODUCT_DEPLOY_PARENT = "7341d9b60b4bf445bec56842df326edfd670e50d"
+ATTEMPT5_PRODUCT_DEPLOY_TREE = "c7eba974fea43c18b3ee933833904a148f32ec20"
+ATTEMPT5_PRODUCT_CORE_COMMIT = "0d6885192307a75f6948e0085c3ca2c3c9f66676"
+ATTEMPT5_PRODUCT_CORE_TREE = "ff324d1f3b1822e9f4c18c6ee89e57451d03bc02"
 ATTEMPT5_PRODUCT_AUTHORITY_SHA256 = (
     "34a0e759e6fc7729e36d3355a2f617a06ac0bebee36bc445740db652c4dc23b0"
 )
@@ -90,6 +93,21 @@ ATTEMPT5_OLD_CONTAINER_CONFIGURATION_SHA256 = (
 )
 ATTEMPT5_OLD_CONTAINER_NETWORKS_SHA256 = (
     "c9d6252c391e4938725803f391425aaeebaf0fa8bbabc60c341f1231219e88a5"
+)
+ATTEMPT5_DURABILITY_TARGET_CONTAINER_ID = (
+    "7e58b9c7cb9f508bf4ab5f9401f86d0b1cfa0845b24fa2ac4beadcb8ae45f610"
+)
+ATTEMPT5_DURABILITY_TARGET_PROJECTION_SHA256 = (
+    "5cde409ac0aedf3b9209b21bc3fb37610d8509218751599ebc12339c26f79f41"
+)
+ATTEMPT5_SOURCE_COMMAND_ROLLBACK_NAME = (
+    "myuna-astrbot-telegram-dev.pre-source-command-20260826T045000Z"
+)
+ATTEMPT5_SOURCE_COMMAND_ROLLBACK_CONTAINER_ID = (
+    "5e5d94df745c87652217f50619ff64023e9dacad2e875479d9a32e1c715f0940"
+)
+ATTEMPT5_SOURCE_COMMAND_ROLLBACK_PROJECTION_SHA256 = (
+    "b74f0d8700341e90d5e7f97f8028a099e94764992d98bfa5c60725e2b8fa8a01"
 )
 TARGET_CHANNEL_ROOT = "/srv/myuna/channels/astrbot-telegram/dev"
 TARGET_SIGNING_SECRET = (
@@ -239,6 +257,7 @@ FIXED_STAGES = (
     "START_RUNTIME_SOCKET",
     "ARM_AND_START_TARGET_ONCE",
     "RECOVER_ATTEMPT5_FAILED_TARGET_TO_CORRECTED_STOPPED",
+    "RESUME_ATTEMPT5_TARGET_ONCE",
 )
 
 IMMUTABLE_ARTIFACTS = ("core", "plugin", "runtime", "image")
@@ -300,6 +319,9 @@ CHECKPOINT_PREFIXES = tuple(
     "READY_FOR_SUPERVISED_GATE",
     "POST_WRITER_MANUAL",
     "POST_WRITER_RECOVERY_REQUIRED",
+    "POST_WRITER_DURABILITY_SOCKET_REQUIRED",
+    "POST_WRITER_DURABILITY_TARGET_START_REQUIRED",
+    "POST_WRITER_DURABILITY_TARGET",
 )
 
 CHECKPOINT_NEXT_STAGE = {
@@ -321,6 +343,9 @@ CHECKPOINT_NEXT_STAGE = {
     "READY_FOR_SUPERVISED_GATE": "ARM_AND_START_TARGET_ONCE",
     "POST_WRITER_MANUAL": None,
     "POST_WRITER_RECOVERY_REQUIRED": "RECOVER_ATTEMPT5_FAILED_TARGET_TO_CORRECTED_STOPPED",
+    "POST_WRITER_DURABILITY_SOCKET_REQUIRED": "START_RUNTIME_SOCKET",
+    "POST_WRITER_DURABILITY_TARGET_START_REQUIRED": "RESUME_ATTEMPT5_TARGET_ONCE",
+    "POST_WRITER_DURABILITY_TARGET": None,
 }
 CHECKPOINT_STAGE_TARGET = {
     "STAGE_CORE_RELEASE": "CORE_RELEASE_TARGET",
@@ -340,6 +365,7 @@ CHECKPOINT_STAGE_TARGET = {
     "START_RUNTIME_SOCKET": "READY_FOR_SUPERVISED_GATE",
     "ARM_AND_START_TARGET_ONCE": "POST_WRITER_MANUAL",
     "RECOVER_ATTEMPT5_FAILED_TARGET_TO_CORRECTED_STOPPED": "TARGET_CONTAINER_STOPPED",
+    "RESUME_ATTEMPT5_TARGET_ONCE": "POST_WRITER_DURABILITY_TARGET",
 }
 
 
@@ -864,18 +890,29 @@ def validate_source_authority(value: object) -> dict[str, object]:
         },
         "fixed_source_authority_rejected",
     )
-    source_pair = (source["deploy_commit"], source["deploy_parent"])
-    frozen_product_pair = (
-        ATTEMPT5_PRODUCT_DEPLOY_COMMIT,
-        ATTEMPT5_PRODUCT_DEPLOY_PARENT,
+    source_tuple = (
+        source["core_commit"],
+        source["core_tree"],
+        source["deploy_commit"],
+        source["deploy_parent"],
+        source["deploy_tree"],
     )
-    require(
+    current_logic = (
         source["core_commit"] == ACCEPTED_CORE_COMMIT
         and source["core_tree"] == ACCEPTED_CORE_TREE
-        and (
-            source["deploy_parent"] == ACCEPTED_DEPLOY_PARENT
-            or source_pair == frozen_product_pair
-        ),
+        and source["deploy_parent"] == ACCEPTED_DEPLOY_PARENT
+        and source["deploy_commit"] != ATTEMPT5_PRODUCT_DEPLOY_COMMIT
+        and source["deploy_tree"] != ATTEMPT5_PRODUCT_DEPLOY_TREE
+    )
+    frozen_product = source_tuple == (
+        ATTEMPT5_PRODUCT_CORE_COMMIT,
+        ATTEMPT5_PRODUCT_CORE_TREE,
+        ATTEMPT5_PRODUCT_DEPLOY_COMMIT,
+        ATTEMPT5_PRODUCT_DEPLOY_PARENT,
+        ATTEMPT5_PRODUCT_DEPLOY_TREE,
+    )
+    require(
+        current_logic or frozen_product,
         "fixed_source_authority_rejected",
     )
     _hex(source["deploy_commit"], 40, "fixed_source_authority_rejected")
@@ -1083,7 +1120,7 @@ def validate_source_authority(value: object) -> dict[str, object]:
         "source": dict(source),
     }
     computed_digest = digest("phase_f_fixed_source", body)
-    if source_pair == frozen_product_pair:
+    if frozen_product:
         require(
             computed_digest == ATTEMPT5_PRODUCT_AUTHORITY_SHA256,
             "fixed_attempt5_product_authority_rejected",
@@ -1361,9 +1398,12 @@ def _file_observation(
         )
     old_sha = OLD_FILE_SHA256[path]
     target_sha = str(target["payload_sha256"])
+    target_hashes = {target_sha}
+    if path == R5_CONFIG_PATH:
+        target_hashes.add(R5_DURABILITY_TARGET_CONFIG_SHA256)
     state = (
         "TARGET"
-        if current_sha == target_sha
+        if current_sha in target_hashes
         else "OLD"
         if current_sha == old_sha
         else "THIRD_STATE"

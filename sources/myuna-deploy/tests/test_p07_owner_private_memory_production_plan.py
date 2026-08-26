@@ -283,6 +283,21 @@ class ProductionPlanTests(unittest.TestCase):
             module.CHECKPOINT_NEXT_STAGE["READY_FOR_SUPERVISED_GATE"],
             "ARM_AND_START_TARGET_ONCE",
         )
+        self.assertEqual(
+            module.CHECKPOINT_NEXT_STAGE[
+                "POST_WRITER_DURABILITY_SOCKET_REQUIRED"
+            ],
+            "START_RUNTIME_SOCKET",
+        )
+        self.assertEqual(
+            module.CHECKPOINT_NEXT_STAGE[
+                "POST_WRITER_DURABILITY_TARGET_START_REQUIRED"
+            ],
+            "RESUME_ATTEMPT5_TARGET_ONCE",
+        )
+        self.assertIsNone(
+            module.CHECKPOINT_NEXT_STAGE["POST_WRITER_DURABILITY_TARGET"]
+        )
 
     def test_attempt5_target_identity_has_one_source_owned_projection(self) -> None:
         selected = authority(19001)
@@ -383,11 +398,12 @@ class ProductionPlanTests(unittest.TestCase):
     def test_unresolved_or_substituted_authority_rejects(self) -> None:
         self.assertEqual(
             module.ACCEPTED_DEPLOY_PARENT,
-            "5f6e32c4abc0f7e23c29cdda94cb675ebf0d077b",
+            "e321bcce7c673afebf1c92c05bb2bc4828784b35",
         )
         selected = authority(19001)
         for kind, parent in (
             ("old-direct", "e7d624659b882280b5c874e3095dcc46662236b6"),
+            ("prior-main", "5f6e32c4abc0f7e23c29cdda94cb675ebf0d077b"),
             ("old", "3ff4b54bec8d6b1522bcba5b76a572984227cc62"),
             ("intermediate", "b42c2f815c87699068f7f8eda7f5f06a6a8e467b"),
             ("self", selected["source"]["deploy_commit"]),
@@ -400,6 +416,34 @@ class ProductionPlanTests(unittest.TestCase):
                 changed["source"]["deploy_parent"] = parent
                 with self.assertRaises(module.ProductionPlanRejected):
                     module.validate_source_authority(changed)
+
+    def test_current_and_frozen_source_tuples_never_mix(self) -> None:
+        current = authority(19001)
+        frozen_source = {
+            "core_commit": module.ATTEMPT5_PRODUCT_CORE_COMMIT,
+            "core_tree": module.ATTEMPT5_PRODUCT_CORE_TREE,
+            "deploy_commit": module.ATTEMPT5_PRODUCT_DEPLOY_COMMIT,
+            "deploy_parent": module.ATTEMPT5_PRODUCT_DEPLOY_PARENT,
+            "deploy_tree": module.ATTEMPT5_PRODUCT_DEPLOY_TREE,
+        }
+        self.assertNotEqual(current["source"], frozen_source)
+        for field, replacement in frozen_source.items():
+            mixed = module.json.loads(module.canonical(current))
+            mixed.pop("authority_sha256", None)
+            mixed["source"][field] = replacement
+            with self.subTest(field=field), self.assertRaises(
+                module.ProductionPlanRejected
+            ):
+                module.validate_source_authority(mixed)
+
+        self.assertEqual(
+            module.ATTEMPT5_PRODUCT_CORE_COMMIT,
+            "0d6885192307a75f6948e0085c3ca2c3c9f66676",
+        )
+        self.assertEqual(
+            module.ATTEMPT5_PRODUCT_DEPLOY_TREE,
+            "c7eba974fea43c18b3ee933833904a148f32ec20",
+        )
         for mutation in (
             lambda value: value["releases"]["core"].update(digest="UNKNOWN"),
             lambda value: value["image"].update(reference="mutable:latest"),
@@ -407,11 +451,11 @@ class ProductionPlanTests(unittest.TestCase):
                 member_set_sha256="short"
             ),
         ):
-            changed = module.json.loads(module.canonical(selected))
+            changed = module.json.loads(module.canonical(current))
             mutation(changed)
             with self.assertRaises(module.ProductionPlanRejected):
                 module.validate_source_authority(changed)
-        changed = module.json.loads(module.canonical(selected))
+        changed = module.json.loads(module.canonical(current))
         selector = changed["files"][module.MEMORY_SELECTOR_PATH]
         payload = module.json.loads(
             base64.b64decode(selector["payload_b64"], validate=True)
@@ -623,7 +667,7 @@ class ProductionPlanTests(unittest.TestCase):
     def test_attempt5_stopped_old_container_authority_is_frozen(self) -> None:
         self.assertEqual(
             module.ACCEPTED_DEPLOY_PARENT,
-            "5f6e32c4abc0f7e23c29cdda94cb675ebf0d077b",
+            "e321bcce7c673afebf1c92c05bb2bc4828784b35",
         )
         self.assertEqual(
             module.ATTEMPT5_OLD_CONTAINER_ID,

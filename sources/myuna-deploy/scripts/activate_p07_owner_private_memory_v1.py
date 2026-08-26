@@ -603,6 +603,29 @@ def _old_container_role_observation(name: str) -> dict[str, object]:
 
 
 def _old_container_observation() -> dict[str, object]:
+    phase = product._selected_root_phase_authority()
+    if phase["phase"] == "POST_WRITER":
+        rollback = _container_or_absent(
+            product.ATTEMPT5_SOURCE_COMMAND_ROLLBACK_NAME
+        )
+        if rollback["identity"] is not None:
+            exact_rollback = (
+                rollback["identity"]
+                == product.ATTEMPT5_SOURCE_COMMAND_ROLLBACK_CONTAINER_ID
+                and rollback["name"]
+                == product.ATTEMPT5_SOURCE_COMMAND_ROLLBACK_NAME
+                and rollback.get("projection_sha256")
+                == product.ATTEMPT5_SOURCE_COMMAND_ROLLBACK_PROJECTION_SHA256
+                and not rollback["active"]
+                and rollback["policy"] == PRE_DISPATCH_POLICY
+            )
+            return {
+                "active": rollback["active"],
+                "identity": rollback["identity"],
+                "name": rollback["name"],
+                "policy": rollback["policy"],
+                "state": "TARGET" if exact_rollback else "THIRD_STATE",
+            }
     row = _old_container_role_observation(product.CONTAINER_NAME)
     row.pop("projection_sha256", None)
     return row
@@ -645,15 +668,11 @@ def _target_container_observation(
             "fixed_target_role_inventory_rejected",
         )
         candidate_names.update(names)
-    if not candidate_names:
-        return {
-            "active": False,
-            "identity": None,
-            "name": product.CONTAINER_NAME,
-            "policy": "absent",
-            "state": "OLD",
-        }
-    if len(candidate_names) != 1:
+    allowed_names = {
+        product.CONTAINER_NAME,
+        product.ATTEMPT5_SOURCE_COMMAND_ROLLBACK_NAME,
+    }
+    if candidate_names - allowed_names:
         return {
             "active": False,
             "identity": None,
@@ -661,11 +680,34 @@ def _target_container_observation(
             "policy": "ambiguous",
             "state": "THIRD_STATE",
         }
-    candidate_name = next(iter(candidate_names))
+    if product.CONTAINER_NAME not in candidate_names:
+        return {
+            "active": False,
+            "identity": None,
+            "name": product.CONTAINER_NAME,
+            "policy": "absent",
+            "state": "OLD",
+        }
+    candidate_name = product.CONTAINER_NAME
     row = _container_or_absent(candidate_name)
+    rollback = _container_or_absent(
+        product.ATTEMPT5_SOURCE_COMMAND_ROLLBACK_NAME
+    )
+    exact_rollback = (
+        candidate_names == allowed_names
+        and rollback["identity"]
+        == product.ATTEMPT5_SOURCE_COMMAND_ROLLBACK_CONTAINER_ID
+        and rollback["name"] == product.ATTEMPT5_SOURCE_COMMAND_ROLLBACK_NAME
+        and rollback.get("projection_sha256")
+        == product.ATTEMPT5_SOURCE_COMMAND_ROLLBACK_PROJECTION_SHA256
+        and not rollback["active"]
+        and rollback["policy"] == PRE_DISPATCH_POLICY
+    )
     exact_target = (
-        row["identity"] is not None
-        and row["name"] == candidate_name
+        row["identity"] == product.ATTEMPT5_DURABILITY_TARGET_CONTAINER_ID
+        and row["name"] == product.CONTAINER_NAME
+        and row.get("projection_sha256")
+        == product.ATTEMPT5_DURABILITY_TARGET_PROJECTION_SHA256
         and row.get("image") == image["reference"]
         and row.get("target_config_digest") == target_config
         and bool(row.get("plan_digest"))
@@ -673,6 +715,7 @@ def _target_container_observation(
         and row.get("service") == resume.COMPOSE_SERVICE
         and row.get("user") == product.TARGET_USER
         and row.get("network_names") == [product.NETWORK_NAME]
+        and exact_rollback
     )
     return {
         "active": row["active"],
@@ -2088,10 +2131,28 @@ def run_fixed_product_activation(
 def load_installed_source_authority() -> dict[str, object]:
     current_root = Path(__file__).resolve().parent
     current = resume.verify_fixed_controller_release(current_root)
-    current_source = current.get("source")
+    current_release = current.get("release_sha256")
+    current_body = {
+        key: current[key]
+        for key in (
+            "builder",
+            "controller",
+            "files",
+            "image",
+            "parent",
+            "releases",
+            "schema",
+            "source",
+        )
+    }
+    current_authority = product.validate_source_authority(current_body)
+    current_source = current_authority["source"]
     require(
-        type(current_source) is dict
-        and current.get("release_sha256") == current_root.name
+        current_release == current_root.name
+        and current_authority["authority_sha256"]
+        == current.get("authority_sha256")
+        and current_source.get("core_commit") == product.ACCEPTED_CORE_COMMIT
+        and current_source.get("core_tree") == product.ACCEPTED_CORE_TREE
         and current_source.get("deploy_parent") == product.ACCEPTED_DEPLOY_PARENT,
         "fixed_logic_controller_authority_rejected",
     )
@@ -2125,12 +2186,18 @@ def load_installed_source_authority() -> dict[str, object]:
         authority["authority_sha256"]
         == product.ATTEMPT5_PRODUCT_AUTHORITY_SHA256
         and (
+            source["core_commit"],
+            source["core_tree"],
             source["deploy_commit"],
             source["deploy_parent"],
+            source["deploy_tree"],
         )
         == (
+            product.ATTEMPT5_PRODUCT_CORE_COMMIT,
+            product.ATTEMPT5_PRODUCT_CORE_TREE,
             product.ATTEMPT5_PRODUCT_DEPLOY_COMMIT,
             product.ATTEMPT5_PRODUCT_DEPLOY_PARENT,
+            product.ATTEMPT5_PRODUCT_DEPLOY_TREE,
         ),
         "fixed_attempt5_product_authority_rejected",
     )
@@ -2365,6 +2432,50 @@ def _checkpoint_prefix(plan_value: object) -> str:
         selected_state in {"OLD", "TARGET"},
         "fixed_checkpoint_root_rejected",
     )
+
+    durability_roles = (
+        target["state"] == "TARGET"
+        and target["identity"] == product.ATTEMPT5_DURABILITY_TARGET_CONTAINER_ID
+        and target["name"] == product.CONTAINER_NAME
+        and target["policy"] == "no"
+        and old["state"] == "TARGET"
+        and old["identity"]
+        == product.ATTEMPT5_SOURCE_COMMAND_ROLLBACK_CONTAINER_ID
+        and old["name"] == product.ATTEMPT5_SOURCE_COMMAND_ROLLBACK_NAME
+        and not old["active"]
+        and old["policy"] == "no"
+    )
+    if durability_roles:
+        phase = product._selected_root_phase_authority()
+        require(
+            phase["attempt"] == product.TRANSITIONAL_INSTALL_ATTEMPT
+            and phase["attempt_consumed"] is True
+            and phase["writer_bound"] is True
+            and phase["attempt6_absent"] is True
+            and archive["state"] == "OLD"
+            and archive["identity"] is None
+            and selected_state == "TARGET"
+            and all(state == "TARGET" for state in release_states)
+            and all(state == "TARGET" for state in file_states)
+            and _effective_units_state(plan) == "TARGET"
+            and not runtime_active
+            and core_active,
+            "fixed_checkpoint_post_writer_authority_rejected",
+        )
+        expected_members = [target["identity"]] if target["active"] else []
+        require(
+            network_members == expected_members,
+            "fixed_checkpoint_post_writer_network_rejected",
+        )
+        if target["active"]:
+            require(
+                socket_active,
+                "fixed_checkpoint_post_writer_service_rejected",
+            )
+            return "POST_WRITER_DURABILITY_TARGET"
+        if not socket_active:
+            return "POST_WRITER_DURABILITY_SOCKET_REQUIRED"
+        return "POST_WRITER_DURABILITY_TARGET_START_REQUIRED"
 
     if any(state == "OLD" for state in release_states):
         require(
@@ -2632,12 +2743,18 @@ def _fresh_checkpoint_plan(authority: Mapping[str, object]) -> dict[str, object]
         == product.ATTEMPT5_PRODUCT_AUTHORITY_SHA256
         and type(source) is dict
         and (
+            source.get("core_commit"),
+            source.get("core_tree"),
             source.get("deploy_commit"),
             source.get("deploy_parent"),
+            source.get("deploy_tree"),
         )
         == (
+            product.ATTEMPT5_PRODUCT_CORE_COMMIT,
+            product.ATTEMPT5_PRODUCT_CORE_TREE,
             product.ATTEMPT5_PRODUCT_DEPLOY_COMMIT,
             product.ATTEMPT5_PRODUCT_DEPLOY_PARENT,
+            product.ATTEMPT5_PRODUCT_DEPLOY_TREE,
         ),
         "fixed_attempt5_product_authority_rejected",
     )
@@ -2797,6 +2914,9 @@ def run_checkpointed_stage(
             "FILES_AND_UNITS_TARGET",
             "POST_WRITER_RECOVERY_REQUIRED",
             "TARGET_CONTAINER_STOPPED",
+            "POST_WRITER_DURABILITY_SOCKET_REQUIRED",
+            "POST_WRITER_DURABILITY_TARGET_START_REQUIRED",
+            "POST_WRITER_DURABILITY_TARGET",
         }
         return _checkpoint_result(
             plan,
@@ -2832,7 +2952,11 @@ def run_checkpointed_stage(
         "fixed_checkpoint_stage_request_rejected",
     )
     require(
-        (requested_stage == "ARM_AND_START_TARGET_ONCE") == supervised_start,
+        (
+            requested_stage
+            in {"ARM_AND_START_TARGET_ONCE", "RESUME_ATTEMPT5_TARGET_ONCE"}
+        )
+        == supervised_start,
         "fixed_supervised_decision_rejected",
     )
     if requested_stage == "RECOVER_ATTEMPT5_FAILED_TARGET_TO_CORRECTED_STOPPED":
@@ -2870,6 +2994,11 @@ def run_checkpointed_stage(
         expected_after = product.immutable_subset_prefix(tuple(after_states))
     else:
         expected_after = product.CHECKPOINT_STAGE_TARGET[requested_stage]
+        if (
+            requested_stage == "START_RUNTIME_SOCKET"
+            and prefix_before == "POST_WRITER_DURABILITY_SOCKET_REQUIRED"
+        ):
+            expected_after = "POST_WRITER_DURABILITY_TARGET_START_REQUIRED"
     callbacks = 0
     changed_files: list[str] = []
     writer_boundary = False
@@ -2976,6 +3105,20 @@ def run_checkpointed_stage(
                 and after_service["identity"] == captured["identity"],
                 "fixed_checkpoint_service_poststate_rejected",
             )
+        elif requested_stage == "RESUME_ATTEMPT5_TARGET_ONCE":
+            target = before_observation["target_container"]
+            require(
+                target["state"] == "TARGET"
+                and target["identity"]
+                == product.ATTEMPT5_DURABILITY_TARGET_CONTAINER_ID
+                and target["name"] == product.CONTAINER_NAME
+                and not target["active"]
+                and target["policy"] == "no",
+                "fixed_durability_target_prestate_rejected",
+            )
+            writer_boundary = True
+            callbacks += 1
+            _start_target_once(plan, str(target["identity"]))
         else:
             require(
                 requested_stage == "ARM_AND_START_TARGET_ONCE",
@@ -2995,6 +3138,46 @@ def run_checkpointed_stage(
             callbacks += 1
             _start_target_once(plan, str(target["identity"]))
     except Exception as exc:
+        if requested_stage == "RESUME_ATTEMPT5_TARGET_ONCE":
+            try:
+                after_plan = _fresh_checkpoint_plan(authority)
+                prefix_after = _checkpoint_prefix(after_plan)
+                after_observation = after_plan["observation"]
+            except Exception:
+                return _checkpoint_unestablished_result(
+                    plan,
+                    reason="durability_target_observation_unestablished",
+                    stage=requested_stage,
+                    prefix_before=prefix_before,
+                    before_observation=before_observation,
+                    callbacks=callbacks,
+                    local_reverse="FORBIDDEN_POST_WRITER",
+                    writer_boundary=True,
+                )
+            if prefix_after == "POST_WRITER_DURABILITY_TARGET":
+                return _checkpoint_result(
+                    plan,
+                    status="SUPERVISED_MANUAL_REQUIRED",
+                    reason="durability_lost_return_reobserved_target",
+                    stage=requested_stage,
+                    prefix_before=prefix_before,
+                    prefix_after=prefix_after,
+                    before_observation=before_observation,
+                    after_observation=after_observation,
+                    callbacks=callbacks,
+                    local_reverse="FORBIDDEN_POST_WRITER",
+                    writer_boundary=True,
+                )
+            return _checkpoint_unestablished_result(
+                plan,
+                reason="durability_target_start_failed_no_redispatch",
+                stage=requested_stage,
+                prefix_before=prefix_before,
+                before_observation=before_observation,
+                callbacks=callbacks,
+                local_reverse="FORBIDDEN_POST_WRITER",
+                writer_boundary=True,
+            )
         if writer_boundary:
             try:
                 after_plan = _fresh_checkpoint_plan(authority)
@@ -3196,7 +3379,9 @@ def run_checkpointed_stage(
             else "STAGE_TARGET"
         ),
         reason=(
-            "writer_dispatched_terminal_observation_requires_owner"
+            "durability_target_verified"
+            if requested_stage == "RESUME_ATTEMPT5_TARGET_ONCE"
+            else "writer_dispatched_terminal_observation_requires_owner"
             if writer_boundary
             else "stage_target_verified"
         ),
