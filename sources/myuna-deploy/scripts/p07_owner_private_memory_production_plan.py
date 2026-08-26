@@ -20,17 +20,50 @@ SOURCE_SCHEMA = "myuna.phase-f.fixed-product-source-authority.v1"
 OBSERVATION_SCHEMA = "myuna.phase-f.fixed-product-observation.v1"
 PLAN_SCHEMA = "myuna.phase-f.fixed-product-plan.v1"
 RESULT_SCHEMA = "myuna.phase-f.fixed-product-result.v1"
-ACCEPTED_DEPLOY_PARENT = "34efdf57bd9ee8a090bc40ebe10c90f5da534e42"
-ACCEPTED_CORE_COMMIT = "0d6885192307a75f6948e0085c3ca2c3c9f66676"
-ACCEPTED_CORE_TREE = "ff324d1f3b1822e9f4c18c6ee89e57451d03bc02"
+ACCEPTED_DEPLOY_PARENT = "5f6e32c4abc0f7e23c29cdda94cb675ebf0d077b"
+ACCEPTED_CORE_COMMIT = "4c13c0b20552b5d8a8720f180d0569405fed00b0"
+ACCEPTED_CORE_TREE = "e43ae07babf5a448525d1035d400a37fde374a2b"
 HYBRID_BUILDER_BLOB = "2c92a5f7d995fd08ed658d4cc905a6db6dd2ac65"
 GATEWAY_BUILDER_BLOB = "d024c94b61b0eee820568073e578f04c57099cf2"
 ACCEPTED_ASTRBOT_COMMIT = "2d617544d883ea6c31ec40fcce59d4cfaa904dd1"
 ACCEPTED_RUNTIME_BASE = (
     "6b10fc936994eaeb97fae4d4f96375c93ddcf9a505140cbaac6d9ef304b4b7af"
 )
+R5_DURABILITY_BASELINE_CONTROLLER_RELEASE = (
+    "7ebc81cf25d047c49f4555c85e1e6b90db66cfef8c25e47904b56ec2146bd4fc"
+)
+R5_DURABILITY_BASELINE_DEPLOY_COMMIT = (
+    "3a538c218bd784d7f099244c7ef9cfac73add50a"
+)
+R5_DURABILITY_BASELINE_DEPLOY_PARENT = (
+    "34efdf57bd9ee8a090bc40ebe10c90f5da534e42"
+)
+R5_DURABILITY_BASELINE_DEPLOY_TREE = (
+    "dbf5e47ce8d853088c1dcec233b34ac6195f528e"
+)
+R5_DURABILITY_BASELINE_CORE_COMMIT = (
+    "0d6885192307a75f6948e0085c3ca2c3c9f66676"
+)
+R5_DURABILITY_BASELINE_CORE_TREE = (
+    "ff324d1f3b1822e9f4c18c6ee89e57451d03bc02"
+)
+R5_DURABILITY_BASELINE_CONFIG_SHA256 = (
+    "0710c79b11aa9bcdccb6c73c83b60ac05626d16e33344ce17225136d0fed281c"
+)
+R5_DURABILITY_BASELINE_UNIT_SHA256 = (
+    "0cd6edb71096a7e9ceccc996e912e5d0836c871053e88f47e9611e918351ed76"
+)
+R5_DURABILITY_BASELINE_PLUGIN_RELEASE = (
+    "e62918292dba1ae2304396871a8070c4640091bfdf42a81327a550999e755c35"
+)
+R5_DURABILITY_TARGET_PLUGIN_RELEASE = (
+    "a85c745dd40b4c29e8e49072475fdbed6454bbacbbe5d373cf6144b265aff4af"
+)
+R5_DURABILITY_TARGET_CONFIG_SHA256 = (
+    "c1a20bd08ce3c56e1d273bed0e176c2f6a980d3c5373592c83a03db4d6412c63"
+)
 TRANSITIONAL_LINEAGE_LOWER = "d445af03f668370b47a4672cdc9a7119d9cfc7d6"
-TRANSITIONAL_LINEAGE_UPPER = ACCEPTED_DEPLOY_PARENT
+TRANSITIONAL_LINEAGE_UPPER = "34efdf57bd9ee8a090bc40ebe10c90f5da534e42"
 ARCHIVE_CHILD_CREATOR_LINEAGE_UPPER = (
     "e93f926929c6ddc3d3d333f03ec6564dda31e12f"
 )
@@ -82,6 +115,7 @@ TARGET_IMAGE_PREFIX = "myuna/astrbot-phase-f-deterministic@sha256:"
 CORE_RELEASE_ROOT = "/srv/myuna/releases/core"
 RUNTIME_RELEASE_ROOT = "/opt/myuna/context24-gateway/telegram/releases"
 PLUGIN_RELEASE_ROOT = "/opt/myuna/telegram-gateway/releases"
+R5_CONFIG_PATH = "/etc/myuna-telegram-gateway/r5-resume-v1.json"
 NETWORK_NAME = "myuna-astrbot-telegram-dev"
 CONTAINER_NAME = "myuna-astrbot-telegram-dev"
 ARCHIVE_PREFIX = CONTAINER_NAME + ".pre-"
@@ -110,6 +144,18 @@ ATTEMPT5_PRIOR_ARCHIVE_CHILD_IDENTITY = (
 )
 ATTEMPT5_PRIOR_ARCHIVE_CHILD_NAME_SHA256 = (
     "5b2184347b78916b87b4e171bc651d47210ff1eba5ef5117e2ff0800520f395a"
+)
+_SELECTED_ROOT_PHASE_SCHEMA = (
+    "myuna.phase-f.post-writer-selected-root-authority.v1"
+)
+_SELECTED_ROOT_PHASE_DOMAIN = "phase-f.fixed-product-supervised-activation"
+_SELECTED_ROOT_PHASE = "POST_WRITER"
+_SELECTED_ROOT_PHASE_VERSION = 1
+_SELECTED_ROOT_NETWORK_PROJECTION_SHA256 = (
+    "56605a22077783c6c780cb701b119b8a3375ac3804ba8d67da17b88087ef6eab"
+)
+_SELECTED_ROOT_PHASE_AUTHORITY_SHA256 = (
+    "58d16ade22d99f18ca23541e8101f0e6dfe488404b7a20e014f4e6dab30ccbb0"
 )
 ATTEMPT5_PRIOR_CONTROLLER_RELEASE = (
     "24064115ccdd0ca83c2dd94a49349bfbb7f706cbbdfd609cb00212aba0caf564"
@@ -360,6 +406,38 @@ def canonical(value: object) -> bytes:
 
 def digest(domain: str, value: object) -> str:
     return sha256(domain.encode("ascii") + b"\0" + canonical(value)).hexdigest()
+
+
+def _selected_root_phase_authority() -> dict[str, object]:
+    """Return the sealed source phase; no caller or result receipt participates."""
+
+    require(
+        _SELECTED_ROOT_PHASE in {"PRE_WRITER", "POST_WRITER"},
+        "fixed_selected_root_phase_authority_rejected",
+    )
+    post_writer = _SELECTED_ROOT_PHASE == "POST_WRITER"
+    body: dict[str, object] = {
+        "archive_parent_identity": ATTEMPT5_ARCHIVE_PARENT_IDENTITY,
+        "attempt": TRANSITIONAL_INSTALL_ATTEMPT,
+        "attempt6_absent": True,
+        "attempt_consumed": post_writer,
+        "domain": _SELECTED_ROOT_PHASE_DOMAIN,
+        "network_projection_sha256": _SELECTED_ROOT_NETWORK_PROJECTION_SHA256,
+        "phase": _SELECTED_ROOT_PHASE,
+        "product_authority_sha256": ATTEMPT5_PRODUCT_AUTHORITY_SHA256,
+        "product_controller_release": ATTEMPT5_PRODUCT_CONTROLLER_RELEASE,
+        "product_plan_sha256": ATTEMPT5_PRODUCT_ENTRY_PLAN_SHA256,
+        "schema": _SELECTED_ROOT_PHASE_SCHEMA,
+        "selected_root_identity": ATTEMPT5_PRIOR_ARCHIVE_CHILD_IDENTITY,
+        "version": _SELECTED_ROOT_PHASE_VERSION,
+        "writer_bound": post_writer,
+    }
+    require(
+        digest("phase_f_post_writer_selected_root_authority_v1", body)
+        == _SELECTED_ROOT_PHASE_AUTHORITY_SHA256,
+        "fixed_selected_root_phase_authority_rejected",
+    )
+    return body
 
 
 def _attempt5_environment_contract() -> dict[str, object]:
@@ -1018,9 +1096,137 @@ def validate_source_authority(value: object) -> dict[str, object]:
     return {**body, "authority_sha256": computed_digest}
 
 
+def r5_durability_target_config() -> bytes:
+    """Return the sole source-owned R5 maintenance target payload."""
+
+    payload = canonical(
+        {
+            "channel_root": TARGET_CHANNEL_ROOT,
+            "compose_file": (
+                f"{PLUGIN_RELEASE_ROOT}/{R5_DURABILITY_TARGET_PLUGIN_RELEASE}/"
+                "channels/astrbot-telegram/compose.dev.yml"
+            ),
+            "gateway_release": R5_DURABILITY_TARGET_PLUGIN_RELEASE,
+            "plugin_root": (
+                f"{PLUGIN_RELEASE_ROOT}/{R5_DURABILITY_TARGET_PLUGIN_RELEASE}/"
+                "channels/astrbot-telegram/plugin/myuna_telegram_gateway"
+            ),
+            "schema": "myuna.telegram.r5-boot-resume-config.v1",
+        }
+    )
+    require(
+        sha256(payload).hexdigest() == R5_DURABILITY_TARGET_CONFIG_SHA256,
+        "r5_durability_target_config_rejected",
+    )
+    return payload
+
+
+def validate_r5_durability_authority(
+    baseline_value: Mapping[str, object],
+    target_value: Mapping[str, object],
+) -> dict[str, object]:
+    """Admit one exact old-controller to source-command selection projection."""
+
+    keys = {
+        "builder",
+        "controller",
+        "files",
+        "image",
+        "parent",
+        "releases",
+        "schema",
+        "source",
+    }
+    require(
+        keys.issubset(baseline_value),
+        "r5_durability_baseline_authority_rejected",
+    )
+    baseline = {key: baseline_value[key] for key in keys}
+    baseline_source = baseline.get("source")
+    baseline_controller = baseline.get("controller")
+    baseline_releases = baseline.get("releases")
+    baseline_files = baseline.get("files")
+    require(
+        type(baseline_source) is dict
+        and baseline_source
+        == {
+            "core_commit": R5_DURABILITY_BASELINE_CORE_COMMIT,
+            "core_tree": R5_DURABILITY_BASELINE_CORE_TREE,
+            "deploy_commit": R5_DURABILITY_BASELINE_DEPLOY_COMMIT,
+            "deploy_parent": R5_DURABILITY_BASELINE_DEPLOY_PARENT,
+            "deploy_tree": R5_DURABILITY_BASELINE_DEPLOY_TREE,
+        }
+        and type(baseline_controller) is dict
+        and baseline_controller.get("config_sha256")
+        == R5_DURABILITY_BASELINE_CONFIG_SHA256
+        and type(baseline_releases) is dict
+        and type(baseline_releases.get("plugin")) is dict
+        and baseline_releases["plugin"].get("digest")
+        == R5_DURABILITY_BASELINE_PLUGIN_RELEASE
+        and type(baseline_files) is dict
+        and type(baseline_files.get(R5_CONFIG_PATH)) is dict
+        and baseline_files[R5_CONFIG_PATH].get("payload_sha256")
+        == R5_DURABILITY_BASELINE_CONFIG_SHA256,
+        "r5_durability_baseline_authority_rejected",
+    )
+
+    target_input = {key: target_value[key] for key in keys}
+    target = validate_source_authority(target_value)
+    target_source = target["source"]
+    target_controller = target["controller"]
+    target_releases = target["releases"]
+    target_files = target["files"]
+    target_config = target_files[R5_CONFIG_PATH]
+    try:
+        target_payload = base64.b64decode(
+            str(target_config["payload_b64"]), validate=True
+        )
+    except ValueError as exc:
+        raise ProductionPlanRejected(
+            "r5_durability_target_authority_rejected"
+        ) from exc
+    require(
+        target_source["core_commit"] == ACCEPTED_CORE_COMMIT
+        and target_source["core_tree"] == ACCEPTED_CORE_TREE
+        and target_source["deploy_parent"] == ACCEPTED_DEPLOY_PARENT
+        and target_controller["config_sha256"]
+        == R5_DURABILITY_TARGET_CONFIG_SHA256
+        and target_config["payload_sha256"]
+        == R5_DURABILITY_TARGET_CONFIG_SHA256
+        and target_payload == r5_durability_target_config()
+        and target_releases["plugin"]["digest"]
+        == R5_DURABILITY_TARGET_PLUGIN_RELEASE,
+        "r5_durability_target_authority_rejected",
+    )
+    for field in ("builder", "image", "parent"):
+        require(
+            canonical(target_input[field]) == canonical(baseline[field]),
+            "r5_durability_protected_authority_changed",
+        )
+    for release in ("core", "runtime"):
+        require(
+            canonical(target_input["releases"][release])
+            == canonical(baseline_releases[release]),
+            "r5_durability_protected_authority_changed",
+        )
+    for path in sorted(FILE_ROLES):
+        if path != R5_CONFIG_PATH:
+            require(
+                canonical(target_input["files"][path])
+                == canonical(baseline_files[path]),
+                "r5_durability_protected_authority_changed",
+            )
+    return target
+
+
 def source_contract() -> dict[str, object]:
     """Return the finite source-owned shape; it contains no runtime truth."""
 
+    selected_root_phase = _selected_root_phase_authority()
+    require(
+        selected_root_phase["phase"] == "POST_WRITER",
+        "fixed_selected_root_phase_authority_rejected",
+    )
     return {
         "accepted_core_commit": ACCEPTED_CORE_COMMIT,
         "accepted_core_tree": ACCEPTED_CORE_TREE,
@@ -1045,6 +1251,7 @@ def source_contract() -> dict[str, object]:
         },
         "network": NETWORK_NAME,
         "parent_release_set_id": PARENT_RELEASE_SET_ID,
+        "post_writer_selected_root_authority_sha256": _SELECTED_ROOT_PHASE_AUTHORITY_SHA256,
         "runtime_base_digest": ACCEPTED_RUNTIME_BASE,
         "schema": SOURCE_SCHEMA,
     }

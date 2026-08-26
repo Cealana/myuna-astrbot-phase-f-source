@@ -30,6 +30,9 @@ GATEWAY_BUILDER = "scripts/build_telegram_gateway_release_v1.py"
 CONTROLLER_BUILDER = "scripts/build_telegram_r5_controller_release_v1.py"
 RENDER_HELPER = "scripts/activate_p07_hybrid_external_generation_v1.py"
 DIARY_HELPER = "scripts/p07_owner_day_diary_v2.py"
+_R5_DURABILITY_HYBRID_BUILDER_BLOB = (
+    "b2075d024ad98ab5bec93ebfec29187fa183d14d"
+)
 RUNTIME_MEMBERS = (
     ("scripts/activate_p07_owner_private_memory_v1.py", "activate_p07_owner_private_memory_v1.py"),
     ("scripts/p07_owner_private_memory_production_plan.py", "p07_owner_private_memory_production_plan.py"),
@@ -405,6 +408,199 @@ def _orchestrate_product(
     return authority, payloads
 
 
+def _historical_baseline_authority(
+    release_root: Path,
+) -> tuple[dict[str, object], dict[str, object]]:
+    _require(
+        release_root.name == product.R5_DURABILITY_BASELINE_CONTROLLER_RELEASE,
+        "r5_durability_baseline_release_rejected",
+    )
+    try:
+        document, _manifest = boot._controller_manifest(release_root)
+    except (OSError, boot.ResumeRejected) as exc:
+        raise TelegramR5ControllerReleaseRejected(
+            "r5_durability_baseline_release_rejected"
+        ) from exc
+    _require(
+        document.get("deploy_commit")
+        == product.R5_DURABILITY_BASELINE_DEPLOY_COMMIT
+        and document.get("deploy_parent")
+        == product.R5_DURABILITY_BASELINE_DEPLOY_PARENT
+        and document.get("deploy_tree")
+        == product.R5_DURABILITY_BASELINE_DEPLOY_TREE
+        and document.get("core_commit")
+        == product.R5_DURABILITY_BASELINE_CORE_COMMIT
+        and document.get("core_tree")
+        == product.R5_DURABILITY_BASELINE_CORE_TREE,
+        "r5_durability_baseline_source_rejected",
+    )
+    prior_path = release_root / "p07_owner_private_memory_production_plan.py"
+    prior_spec = importlib.util.spec_from_file_location(
+        "p07_owner_private_memory_production_plan",
+        prior_path,
+    )
+    _require(
+        prior_spec is not None and prior_spec.loader is not None,
+        "r5_durability_baseline_release_rejected",
+    )
+    prior_product = importlib.util.module_from_spec(prior_spec)
+    current_product = sys.modules.get("p07_owner_private_memory_production_plan")
+    try:
+        sys.modules["p07_owner_private_memory_production_plan"] = prior_product
+        prior_spec.loader.exec_module(prior_product)
+        verified = boot.verify_fixed_controller_release(
+            release_root,
+            environment={},
+        )
+    except (OSError, ImportError, AttributeError, boot.ResumeRejected) as exc:
+        raise TelegramR5ControllerReleaseRejected(
+            "r5_durability_baseline_release_rejected"
+        ) from exc
+    finally:
+        if current_product is None:
+            sys.modules.pop("p07_owner_private_memory_production_plan", None)
+        else:
+            sys.modules["p07_owner_private_memory_production_plan"] = current_product
+    _require(
+        verified.get("release_sha256")
+        == product.R5_DURABILITY_BASELINE_CONTROLLER_RELEASE,
+        "r5_durability_baseline_release_rejected",
+    )
+    fixed = {
+        key: verified[key]
+        for key in (
+            "builder",
+            "controller",
+            "files",
+            "image",
+            "parent",
+            "releases",
+            "schema",
+            "source",
+        )
+    }
+    return document, fixed
+
+
+def _orchestrate_r5_durability(
+    deploy_root: Path,
+    core_root: Path,
+    baseline_release_root: Path,
+    deploy_commit: str,
+    core_commit: str,
+    scratch: Path,
+) -> tuple[dict[str, object], dict[str, bytes], dict[str, object]]:
+    deploy_tree = _validate_repository(
+        deploy_root,
+        deploy_commit,
+        parent=product.ACCEPTED_DEPLOY_PARENT,
+    )
+    core_tree = _validate_repository(core_root, core_commit)
+    _require(
+        core_commit == product.ACCEPTED_CORE_COMMIT
+        and core_tree == product.ACCEPTED_CORE_TREE,
+        "core_source_identity_rejected",
+    )
+    for relative, expected in (
+        (PAIRED_BUILDER, _R5_DURABILITY_HYBRID_BUILDER_BLOB),
+        (GATEWAY_BUILDER, product.GATEWAY_BUILDER_BLOB),
+    ):
+        row = str(_git(deploy_root, "ls-tree", deploy_commit, "--", relative)).split()
+        _require(
+            len(row) >= 4 and row[2] == expected,
+            "upstream_builder_identity_rejected",
+        )
+    baseline_document, baseline = _historical_baseline_authority(
+        baseline_release_root
+    )
+    search = (deploy_root / "scripts", core_root / "src")
+    gateway = _load_module(
+        "_phase_f_gateway_builder",
+        deploy_root / GATEWAY_BUILDER,
+        search,
+    )
+    helper = _load_module(
+        "_phase_f_render_helper",
+        deploy_root / RENDER_HELPER,
+        search,
+    )
+    plugin_output = scratch / "plugin"
+    try:
+        plugin_document = gateway.build_release(deploy_root, plugin_output)
+        _require(
+            gateway.verify_release(plugin_output, plugin_document),
+            "plugin_builder_verification_rejected",
+        )
+    except TelegramR5ControllerReleaseRejected:
+        raise
+    except Exception as exc:
+        raise TelegramR5ControllerReleaseRejected(
+            "upstream_builder_rejected"
+        ) from exc
+    plugin_digest = str(plugin_document["release_digest"])
+    _require(
+        plugin_digest == product.R5_DURABILITY_TARGET_PLUGIN_RELEASE,
+        "r5_durability_target_plugin_rejected",
+    )
+    plugin_release, plugin_payloads = _release_bundle(
+        "plugin",
+        plugin_output / plugin_digest,
+        plugin_digest,
+        product.PLUGIN_RELEASE_ROOT,
+        sha256(
+            (
+                plugin_output
+                / f"{plugin_digest}{gateway.MANIFEST_SUFFIX}"
+            ).read_bytes()
+        ).hexdigest(),
+    )
+    target_config = helper.render_telegram_config(plugin_digest)
+    _require(
+        target_config == product.r5_durability_target_config(),
+        "r5_durability_target_config_rejected",
+    )
+    authority = json.loads(_canonical(baseline))
+    authority["releases"]["plugin"] = plugin_release
+    config = dict(authority["files"][product.R5_CONFIG_PATH])
+    config["payload_b64"] = base64.b64encode(target_config).decode("ascii")
+    config["payload_sha256"] = sha256(target_config).hexdigest()
+    authority["files"][product.R5_CONFIG_PATH] = config
+    authority["controller"] = {
+        "config_sha256": sha256(target_config).hexdigest(),
+        "member_set_sha256": "0" * 64,
+        "source_receipt_sha256": "0" * 64,
+    }
+    authority["source"] = {
+        "core_commit": core_commit,
+        "core_tree": core_tree,
+        "deploy_commit": deploy_commit,
+        "deploy_parent": product.ACCEPTED_DEPLOY_PARENT,
+        "deploy_tree": deploy_tree,
+    }
+    generated: dict[str, bytes] = {}
+    old_prefix = str(baseline["releases"]["plugin"]["bundle_prefix"]) + "/"
+    for row in baseline_document["files"]:
+        destination = str(row["destination"])
+        if destination.startswith("staging/") and not destination.startswith(old_prefix):
+            payload = (baseline_release_root / destination).read_bytes()
+            _require(
+                sha256(payload).hexdigest() == row["content_sha256"],
+                "r5_durability_baseline_member_rejected",
+            )
+            generated[destination] = payload
+    _require(
+        not (set(generated) & set(plugin_payloads)),
+        "builder_bundle_collision",
+    )
+    generated.update(plugin_payloads)
+    _require(
+        set(generated) == product.authority_bundle_members(authority),
+        "r5_durability_bundle_rejected",
+    )
+    product.validate_r5_durability_authority(baseline, authority)
+    return authority, generated, baseline
+
+
 def _manifest_and_payloads(
     deploy_root: Path,
     core_root: Path,
@@ -414,8 +610,20 @@ def _manifest_and_payloads(
     deploy_commit: str,
     core_commit: str,
     scratch: Path,
+    baseline_controller_root: Path | None = None,
 ) -> tuple[bytes, dict[str, bytes]]:
-    authority, generated = _orchestrate_product(deploy_root, core_root, astrbot_root, runtime_base, base_archive, deploy_commit, core_commit, scratch)
+    baseline: dict[str, object] | None = None
+    if baseline_controller_root is None:
+        authority, generated = _orchestrate_product(deploy_root, core_root, astrbot_root, runtime_base, base_archive, deploy_commit, core_commit, scratch)
+    else:
+        authority, generated, baseline = _orchestrate_r5_durability(
+            deploy_root,
+            core_root,
+            baseline_controller_root,
+            deploy_commit,
+            core_commit,
+            scratch,
+        )
     deploy_tree = str(_git(deploy_root, "rev-parse", f"{deploy_commit}^{{tree}}"))
     core_tree = str(_git(core_root, "rev-parse", f"{core_commit}^{{tree}}"))
     source_rows: list[dict[str, object]] = []
@@ -432,7 +640,11 @@ def _manifest_and_payloads(
     files = sorted([*source_rows, *(_generated_member(path, payload) for path, payload in generated.items())], key=lambda item: str(item["destination"]))
     _require(len(files) == len(payloads), "controller_member_collision")
     authority["controller"] = {"config_sha256": authority["controller"]["config_sha256"], "member_set_sha256": sha256(_canonical(files)).hexdigest(), "source_receipt_sha256": sha256(source_receipt_bytes).hexdigest()}
-    validated = product.validate_source_authority(authority)
+    validated = (
+        product.validate_source_authority(authority)
+        if baseline is None
+        else product.validate_r5_durability_authority(baseline, authority)
+    )
     fixed = {key: validated[key] for key in ("builder", "controller", "files", "image", "parent", "releases", "schema", "source")}
     controller = next(row for row in source_rows if row["source"] == CONTROLLER_BUILDER)
     paired = next(row for row in source_rows if row["source"] == PAIRED_BUILDER)
@@ -477,6 +689,8 @@ def build_release(
     output_root: Path,
     deploy_commit: str,
     core_commit: str,
+    *,
+    baseline_controller_root: Path | None = None,
 ) -> str:
     scratch: Path | None = None
     temporary: Path | None = None
@@ -486,7 +700,17 @@ def build_release(
         else:
             output_root.mkdir(parents=True)
         scratch = Path(tempfile.mkdtemp(prefix=".phase-f-product-build-", dir=output_root))
-        manifest, payloads = _manifest_and_payloads(deploy_root, core_root, astrbot_root, runtime_base, base_archive, deploy_commit, core_commit, scratch)
+        manifest, payloads = _manifest_and_payloads(
+            deploy_root,
+            core_root,
+            astrbot_root,
+            runtime_base,
+            base_archive,
+            deploy_commit,
+            core_commit,
+            scratch,
+            baseline_controller_root,
+        )
         digest = sha256(manifest).hexdigest()
         release = output_root / digest
         document = json.loads(manifest)
@@ -593,9 +817,20 @@ def main() -> int:
     parser.add_argument("output_root", type=Path)
     parser.add_argument("deploy_commit")
     parser.add_argument("core_commit")
+    parser.add_argument("--r5-durability-baseline-root", type=Path)
     args = parser.parse_args()
     try:
-        digest = build_release(args.deploy_root, args.core_root, args.astrbot_root, args.runtime_base, args.base_archive, args.output_root, args.deploy_commit, args.core_commit)
+        digest = build_release(
+            args.deploy_root,
+            args.core_root,
+            args.astrbot_root,
+            args.runtime_base,
+            args.base_archive,
+            args.output_root,
+            args.deploy_commit,
+            args.core_commit,
+            baseline_controller_root=args.r5_durability_baseline_root,
+        )
         expected = expected_controller_authority(args.output_root, digest)
         if not verify_release(args.output_root, digest, expected):
             raise TelegramR5ControllerReleaseRejected("release_verification_rejected")

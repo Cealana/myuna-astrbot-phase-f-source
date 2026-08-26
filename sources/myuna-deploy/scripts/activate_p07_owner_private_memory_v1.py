@@ -709,7 +709,82 @@ def _archive_observation(name: str) -> dict[str, object]:
 
 def _archive_root_observation(
     authority: Mapping[str, object],
+    *,
+    parent_state: Mapping[str, object] | None = None,
+    network_state: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
+    phase = product._selected_root_phase_authority()
+    require(
+        set(phase)
+        == {
+            "archive_parent_identity",
+            "attempt",
+            "attempt6_absent",
+            "attempt_consumed",
+            "domain",
+            "network_projection_sha256",
+            "phase",
+            "product_authority_sha256",
+            "product_controller_release",
+            "product_plan_sha256",
+            "schema",
+            "selected_root_identity",
+            "version",
+            "writer_bound",
+        },
+        "fixed_selected_root_phase_authority_rejected",
+    )
+    if parent_state is None:
+        parent_state = _parent_observation()
+    if network_state is None:
+        network_state = _network_observation()
+    pre_writer_authority = (
+        phase["schema"]
+        == "myuna.phase-f.post-writer-selected-root-authority.v1"
+        and phase["domain"]
+        == "phase-f.fixed-product-supervised-activation"
+        and phase["version"] == 1
+        and phase["phase"] == "PRE_WRITER"
+        and phase["attempt"] == 5
+        and phase["attempt_consumed"] is False
+        and phase["writer_bound"] is False
+        and phase["attempt6_absent"] is True
+    )
+    post_writer_authority = (
+        phase["schema"]
+        == "myuna.phase-f.post-writer-selected-root-authority.v1"
+        and phase["domain"]
+        == "phase-f.fixed-product-supervised-activation"
+        and phase["version"] == 1
+        and phase["phase"] == "POST_WRITER"
+        and phase["attempt"] == 5
+        and phase["attempt_consumed"] is True
+        and phase["writer_bound"] is True
+        and phase["attempt6_absent"] is True
+        and phase["product_authority_sha256"]
+        == product.ATTEMPT5_PRODUCT_AUTHORITY_SHA256
+        and phase["product_controller_release"]
+        == product.ATTEMPT5_PRODUCT_CONTROLLER_RELEASE
+        and phase["product_plan_sha256"]
+        == product.ATTEMPT5_PRODUCT_ENTRY_PLAN_SHA256
+        and phase["archive_parent_identity"]
+        == product.ATTEMPT5_ARCHIVE_PARENT_IDENTITY
+        and phase["selected_root_identity"]
+        == product.ATTEMPT5_PRIOR_ARCHIVE_CHILD_IDENTITY
+        and parent_state.get("state") == "TARGET"
+        and parent_state.get("manifest_sha256")
+        == product.PARENT_MANIFEST_SHA256
+        and parent_state.get("selector_sha256")
+        == product.PARENT_SELECTOR_SHA256
+        and network_state.get("state") == "TARGET"
+        and network_state.get("name") == product.NETWORK_NAME
+        and network_state.get("projection_sha256")
+        == phase["network_projection_sha256"]
+    )
+    require(
+        pre_writer_authority or post_writer_authority,
+        "fixed_selected_root_phase_authority_rejected",
+    )
     root = Path(product.MEMORY_RUNTIME_ROOT)
     selected = product.selected_memory_runtime(authority)
     selected_name = str(selected["archive_id"])
@@ -802,6 +877,11 @@ def _archive_root_observation(
                     dir_fd=parent,
                 )
                 selected_metadata = os.fstat(selected_descriptor)
+                selected_contents_valid = (
+                    os.listdir(selected_descriptor) == []
+                    if selected_entry == prior_name or pre_writer_authority
+                    else True
+                )
                 selected_valid = (
                     stat.S_ISDIR(selected_metadata.st_mode)
                     and selected_metadata.st_dev == before.st_dev
@@ -809,7 +889,7 @@ def _archive_root_observation(
                     and selected_metadata.st_gid == product.MEMORY_RUNTIME_GID
                     and stat.S_IMODE(selected_metadata.st_mode) == 0o700
                     and selected_metadata.st_nlink == 2
-                    and os.listdir(selected_descriptor) == []
+                    and selected_contents_valid
                 )
                 selected_identity = _directory_identity(selected_metadata)
                 if selected_entry == prior_name:
@@ -1115,6 +1195,13 @@ def observe_fixed_product(authority: Mapping[str, object]) -> dict[str, object]:
     image = authority["image"]
     assert isinstance(image, Mapping)
     release_observations["image"] = _image_observation(image)
+    parent_state = _parent_observation()
+    network_state = _network_observation()
+    archive_root = _archive_root_observation(
+        authority,
+        parent_state=parent_state,
+        network_state=network_state,
+    )
     authority_sha = product.digest(
         "phase_f_fixed_source",
         {
@@ -1134,11 +1221,11 @@ def observe_fixed_product(authority: Mapping[str, object]) -> dict[str, object]:
     archive_name = product.ARCHIVE_PREFIX + authority_sha[:16]
     return {
         "archive_name": _archive_observation(archive_name),
-        "archive_root": _archive_root_observation(authority),
+        "archive_root": archive_root,
         "files": files,
-        "network": _network_observation(),
+        "network": network_state,
         "old_container": _old_container_observation(),
-        "parent": _parent_observation(),
+        "parent": parent_state,
         "releases": release_observations,
         "schema": product.OBSERVATION_SCHEMA,
         "services": {
@@ -3705,8 +3792,8 @@ def _admit_transitional_controller_unit(
     return True
 
 
-def install_current_controller_unit() -> dict[str, object]:
-    """Publish the sealed current release and install its existing unit."""
+def _publish_current_controller_release() -> tuple[Path, dict[str, object]]:
+    """Publish and reopen the sealed current release without selecting it."""
 
     source_root = Path(__file__).resolve().parent
     authority = resume.verify_fixed_controller_release(source_root)
@@ -3802,6 +3889,14 @@ def install_current_controller_unit() -> dict[str, object]:
             raise
     installed_authority = resume.verify_fixed_controller_release(release_root)
     require(installed_authority == authority, "fixed_controller_install_rejected")
+
+    return release_root, authority
+
+
+def _render_controller_unit(
+    release_root: Path,
+    authority: Mapping[str, object],
+) -> bytes:
     template = release_root / "myuna-telegram-owner-r5-resume.service.in"
     payload = template.read_text("utf-8")
     rendered = (
@@ -3817,6 +3912,14 @@ def install_current_controller_unit() -> dict[str, object]:
         )
     ).encode("utf-8")
     require(b"@CONTROLLER_" not in rendered, "fixed_unit_render_rejected")
+    return rendered
+
+
+def install_current_controller_unit() -> dict[str, object]:
+    """Publish the sealed current release and install its existing unit."""
+
+    release_root, authority = _publish_current_controller_release()
+    rendered = _render_controller_unit(release_root, authority)
     target_unit_sha256 = sha256(rendered).hexdigest()
     before_unit = _file_observation(UNIT_PATH)
     transitional_unit = False
@@ -3864,9 +3967,241 @@ def install_current_controller_unit() -> dict[str, object]:
     }
 
 
+def _r5_durability_pair_state(
+    config: Mapping[str, object],
+    unit: Mapping[str, object],
+    target_unit_sha256: str,
+) -> str:
+    require(
+        config.get("kind") == "regular"
+        and config.get("mode") == "0600"
+        and config.get("uid") == 0
+        and config.get("gid") == 0
+        and unit.get("kind") == "regular"
+        and unit.get("mode") == "0644"
+        and unit.get("uid") == 0
+        and unit.get("gid") == 0,
+        "r5_durability_pair_metadata_rejected",
+    )
+    config_state = (
+        "OLD"
+        if config.get("sha256") == product.R5_DURABILITY_BASELINE_CONFIG_SHA256
+        else (
+            "TARGET"
+            if config.get("sha256") == product.R5_DURABILITY_TARGET_CONFIG_SHA256
+            else "THIRD_STATE"
+        )
+    )
+    unit_state = (
+        "OLD"
+        if unit.get("sha256") == product.R5_DURABILITY_BASELINE_UNIT_SHA256
+        else "TARGET" if unit.get("sha256") == target_unit_sha256 else "THIRD_STATE"
+    )
+    require(
+        config_state == unit_state and config_state in {"OLD", "TARGET"},
+        "r5_durability_pair_state_rejected",
+    )
+    return config_state
+
+
+def _r5_durability_daemon_reload() -> None:
+    try:
+        completed = subprocess.run(
+            ["/usr/bin/systemctl", "daemon-reload"],
+            check=False,
+            capture_output=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise MemoryActivationRejected(
+            "r5_durability_daemon_reload_rejected"
+        ) from exc
+    require(
+        completed.returncode == 0,
+        "r5_durability_daemon_reload_rejected",
+    )
+
+
+def _install_r5_durability_pair(
+    target_release_root: Path,
+    target_authority: Mapping[str, object],
+    baseline_release_root: Path,
+    baseline_authority: Mapping[str, object],
+) -> dict[str, object]:
+    product.validate_r5_durability_authority(
+        baseline_authority,
+        target_authority,
+    )
+    target_unit = _render_controller_unit(target_release_root, target_authority)
+    baseline_unit = _render_controller_unit(
+        baseline_release_root,
+        baseline_authority,
+    )
+    require(
+        sha256(baseline_unit).hexdigest()
+        == product.R5_DURABILITY_BASELINE_UNIT_SHA256,
+        "r5_durability_baseline_unit_rejected",
+    )
+    target_unit_sha256 = sha256(target_unit).hexdigest()
+    target_config = product.r5_durability_target_config()
+    config_path = Path(product.R5_CONFIG_PATH)
+    before_config = _file_observation(config_path)
+    before_unit = _file_observation(UNIT_PATH)
+    state = _r5_durability_pair_state(
+        before_config,
+        before_unit,
+        target_unit_sha256,
+    )
+    if state == "TARGET":
+        return {
+            "callbacks": 0,
+            "config_sha256": product.R5_DURABILITY_TARGET_CONFIG_SHA256,
+            "release": target_release_root.name,
+            "schema": SCHEMA,
+            "status": "R5_DURABILITY_TARGET",
+            "unit_sha256": target_unit_sha256,
+        }
+    old_config = base64.b64decode(
+        str(before_config["payload_b64"]), validate=True
+    )
+    callbacks = 0
+    try:
+        require(
+            _file_observation(config_path) == before_config
+            and _file_observation(UNIT_PATH) == before_unit,
+            "r5_durability_pair_aba_rejected",
+        )
+        callbacks += 1
+        _atomic_file(config_path, target_config, 0o600, 0, 0)
+        observed_config = _file_observation(config_path)
+        require(
+            observed_config.get("sha256")
+            == product.R5_DURABILITY_TARGET_CONFIG_SHA256,
+            "r5_durability_config_install_rejected",
+        )
+        require(
+            _file_observation(UNIT_PATH) == before_unit,
+            "r5_durability_pair_aba_rejected",
+        )
+        callbacks += 1
+        _atomic_file(UNIT_PATH, target_unit, 0o644, 0, 0)
+        callbacks += 1
+        _r5_durability_daemon_reload()
+        after_config = _file_observation(config_path)
+        after_unit = _file_observation(UNIT_PATH)
+        require(
+            _r5_durability_pair_state(
+                after_config,
+                after_unit,
+                target_unit_sha256,
+            )
+            == "TARGET",
+            "r5_durability_target_reobservation_rejected",
+        )
+        require(
+            resume.verify_fixed_controller_release(target_release_root)
+            == target_authority,
+            "r5_durability_target_release_changed",
+        )
+        return {
+            "callbacks": callbacks,
+            "config_sha256": product.R5_DURABILITY_TARGET_CONFIG_SHA256,
+            "release": target_release_root.name,
+            "schema": SCHEMA,
+            "status": "R5_DURABILITY_TARGET",
+            "unit_sha256": target_unit_sha256,
+        }
+    except (
+        MemoryActivationRejected,
+        product.ProductionPlanRejected,
+        resume.ResumeRejected,
+        OSError,
+        ValueError,
+    ) as exc:
+        if callbacks == 0:
+            raise
+        try:
+            current_config = _file_observation(config_path)
+            current_unit = _file_observation(UNIT_PATH)
+            require(
+                current_config.get("sha256")
+                in {
+                    product.R5_DURABILITY_BASELINE_CONFIG_SHA256,
+                    product.R5_DURABILITY_TARGET_CONFIG_SHA256,
+                }
+                and current_unit.get("sha256")
+                in {
+                    product.R5_DURABILITY_BASELINE_UNIT_SHA256,
+                    target_unit_sha256,
+                },
+                "r5_durability_rollback_prestate_rejected",
+            )
+            if current_unit.get("sha256") != product.R5_DURABILITY_BASELINE_UNIT_SHA256:
+                _atomic_file(UNIT_PATH, baseline_unit, 0o644, 0, 0)
+            if current_config.get("sha256") != product.R5_DURABILITY_BASELINE_CONFIG_SHA256:
+                _atomic_file(config_path, old_config, 0o600, 0, 0)
+            _r5_durability_daemon_reload()
+            require(
+                _r5_durability_pair_state(
+                    _file_observation(config_path),
+                    _file_observation(UNIT_PATH),
+                    target_unit_sha256,
+                )
+                == "OLD",
+                "r5_durability_rollback_reobservation_rejected",
+            )
+        except (
+            MemoryActivationRejected,
+            product.ProductionPlanRejected,
+            resume.ResumeRejected,
+            OSError,
+            ValueError,
+        ) as rollback_exc:
+            raise MemoryActivationRejected(
+                "r5_durability_manual_recovery_required"
+            ) from rollback_exc
+        raise MemoryActivationRejected(
+            "r5_durability_install_rolled_back"
+        ) from exc
+
+
+def install_r5_durability_selection() -> dict[str, object]:
+    """Install the one exact source-command controller/config selection."""
+
+    try:
+        lock_descriptor = os.open(
+            CONTROLLER_RELEASES_ROOT,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+        )
+        fcntl.flock(lock_descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (OSError, BlockingIOError) as exc:
+        raise MemoryActivationRejected("r5_durability_lock_rejected") from exc
+    try:
+        target_release_root, target_authority = _publish_current_controller_release()
+        baseline_release_root = (
+            CONTROLLER_RELEASES_ROOT
+            / product.R5_DURABILITY_BASELINE_CONTROLLER_RELEASE
+        )
+        baseline_authority = _historical_controller_authority(
+            baseline_release_root
+        )
+        return _install_r5_durability_pair(
+            target_release_root,
+            target_authority,
+            baseline_release_root,
+            baseline_authority,
+        )
+    finally:
+        try:
+            fcntl.flock(lock_descriptor, fcntl.LOCK_UN)
+        finally:
+            os.close(lock_descriptor)
+
+
 def parser() -> argparse.ArgumentParser:
     selected = argparse.ArgumentParser()
     selected.add_argument("--install-current-controller-unit", action="store_true")
+    selected.add_argument("--install-r5-durability-selection", action="store_true")
     selected.add_argument("--preflight-only", action="store_true")
     selected.add_argument("--supervised-start", action="store_true")
     selected.add_argument("--stage", choices=product.FIXED_STAGES)
@@ -3880,6 +4215,7 @@ def main() -> int:
             int(value)
             for value in (
                 values.install_current_controller_unit,
+                values.install_r5_durability_selection,
                 values.preflight_only,
                 values.stage is not None,
             )
@@ -3896,6 +4232,20 @@ def main() -> int:
             result = install_current_controller_unit()
         except Exception as exc:
             code = getattr(exc, "code", "fixed_install_rejected")
+            print(
+                json.dumps(
+                    {"reason": code, "schema": SCHEMA, "status": "rejected"},
+                    sort_keys=True,
+                )
+            )
+            return 1
+        print(json.dumps(result, separators=(",", ":"), sort_keys=True))
+        return 0
+    if values.install_r5_durability_selection:
+        try:
+            result = install_r5_durability_selection()
+        except Exception as exc:
+            code = getattr(exc, "code", "r5_durability_install_rejected")
             print(
                 json.dumps(
                     {"reason": code, "schema": SCHEMA, "status": "rejected"},

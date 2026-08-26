@@ -383,10 +383,11 @@ class ProductionPlanTests(unittest.TestCase):
     def test_unresolved_or_substituted_authority_rejects(self) -> None:
         self.assertEqual(
             module.ACCEPTED_DEPLOY_PARENT,
-            "34efdf57bd9ee8a090bc40ebe10c90f5da534e42",
+            "5f6e32c4abc0f7e23c29cdda94cb675ebf0d077b",
         )
         selected = authority(19001)
         for kind, parent in (
+            ("old-direct", "e7d624659b882280b5c874e3095dcc46662236b6"),
             ("old", "3ff4b54bec8d6b1522bcba5b76a572984227cc62"),
             ("intermediate", "b42c2f815c87699068f7f8eda7f5f06a6a8e467b"),
             ("self", selected["source"]["deploy_commit"]),
@@ -475,6 +476,86 @@ class ProductionPlanTests(unittest.TestCase):
             any(name.startswith("PRIOR_INSTALL_") for name in vars(module))
         )
 
+    def test_post_writer_selected_root_phase_authority_is_sealed(self) -> None:
+        phase = module._selected_root_phase_authority()
+        self.assertEqual(
+            phase,
+            {
+                "archive_parent_identity": (
+                    module.ATTEMPT5_ARCHIVE_PARENT_IDENTITY
+                ),
+                "attempt": 5,
+                "attempt6_absent": True,
+                "attempt_consumed": True,
+                "domain": "phase-f.fixed-product-supervised-activation",
+                "network_projection_sha256": (
+                    "56605a22077783c6c780cb701b119b8a3375ac3804ba8d67d"
+                    "a17b88087ef6eab"
+                ),
+                "phase": "POST_WRITER",
+                "product_authority_sha256": (
+                    module.ATTEMPT5_PRODUCT_AUTHORITY_SHA256
+                ),
+                "product_controller_release": (
+                    module.ATTEMPT5_PRODUCT_CONTROLLER_RELEASE
+                ),
+                "product_plan_sha256": (
+                    module.ATTEMPT5_PRODUCT_ENTRY_PLAN_SHA256
+                ),
+                "schema": (
+                    "myuna.phase-f.post-writer-selected-root-authority.v1"
+                ),
+                "selected_root_identity": (
+                    module.ATTEMPT5_PRIOR_ARCHIVE_CHILD_IDENTITY
+                ),
+                "version": 1,
+                "writer_bound": True,
+            },
+        )
+        self.assertEqual(
+            module.source_contract()[
+                "post_writer_selected_root_authority_sha256"
+            ],
+            "58d16ade22d99f18ca23541e8101f0e6dfe488404b7a20e014f4e6dab30ccbb0",
+        )
+        for field, value in (
+            ("_SELECTED_ROOT_PHASE", "THIRD_STATE"),
+            ("_SELECTED_ROOT_PHASE_DOMAIN", "substituted"),
+            ("_SELECTED_ROOT_PHASE_VERSION", 2),
+            ("_SELECTED_ROOT_NETWORK_PROJECTION_SHA256", "0" * 64),
+            ("_SELECTED_ROOT_PHASE_AUTHORITY_SHA256", "1" * 64),
+        ):
+            with self.subTest(field=field), mock.patch.object(
+                module,
+                field,
+                value,
+            ):
+                with self.assertRaises(module.ProductionPlanRejected):
+                    module._selected_root_phase_authority()
+        pre_writer_body = {**phase}
+        pre_writer_body.update(
+            attempt_consumed=False,
+            phase="PRE_WRITER",
+            writer_bound=False,
+        )
+        pre_writer_sha256 = module.digest(
+            "phase_f_post_writer_selected_root_authority_v1",
+            pre_writer_body,
+        )
+        with mock.patch.object(
+            module,
+            "_SELECTED_ROOT_PHASE",
+            "PRE_WRITER",
+        ), mock.patch.object(
+            module,
+            "_SELECTED_ROOT_PHASE_AUTHORITY_SHA256",
+            pre_writer_sha256,
+        ):
+            self.assertEqual(
+                module._selected_root_phase_authority(),
+                pre_writer_body,
+            )
+
     def test_selected_runtime_projection_and_root_states_are_exact(self) -> None:
         selected = authority(19001)
         validated = module.validate_source_authority(selected)
@@ -542,7 +623,7 @@ class ProductionPlanTests(unittest.TestCase):
     def test_attempt5_stopped_old_container_authority_is_frozen(self) -> None:
         self.assertEqual(
             module.ACCEPTED_DEPLOY_PARENT,
-            "34efdf57bd9ee8a090bc40ebe10c90f5da534e42",
+            "5f6e32c4abc0f7e23c29cdda94cb675ebf0d077b",
         )
         self.assertEqual(
             module.ATTEMPT5_OLD_CONTAINER_ID,
@@ -690,6 +771,98 @@ class ProductionPlanTests(unittest.TestCase):
             "ledger",
         ):
             self.assertNotIn(forbidden, text)
+
+    def test_r5_durability_projection_changes_only_plugin_and_config(self) -> None:
+        baseline = authority(19001)
+        baseline["source"] = {
+            "core_commit": module.R5_DURABILITY_BASELINE_CORE_COMMIT,
+            "core_tree": module.R5_DURABILITY_BASELINE_CORE_TREE,
+            "deploy_commit": module.R5_DURABILITY_BASELINE_DEPLOY_COMMIT,
+            "deploy_parent": module.R5_DURABILITY_BASELINE_DEPLOY_PARENT,
+            "deploy_tree": module.R5_DURABILITY_BASELINE_DEPLOY_TREE,
+        }
+        baseline_plugin = baseline["releases"]["plugin"]
+        baseline_plugin["digest"] = module.R5_DURABILITY_BASELINE_PLUGIN_RELEASE
+        baseline_plugin["bundle_prefix"] = (
+            "staging/releases/plugin/"
+            + module.R5_DURABILITY_BASELINE_PLUGIN_RELEASE
+        )
+        baseline_config = baseline["files"][module.R5_CONFIG_PATH]
+        baseline_config["payload_sha256"] = (
+            module.R5_DURABILITY_BASELINE_CONFIG_SHA256
+        )
+        baseline["controller"]["config_sha256"] = (
+            module.R5_DURABILITY_BASELINE_CONFIG_SHA256
+        )
+
+        target = module.json.loads(module.canonical(baseline))
+        target.pop("authority_sha256", None)
+        target["source"] = {
+            "core_commit": module.ACCEPTED_CORE_COMMIT,
+            "core_tree": module.ACCEPTED_CORE_TREE,
+            "deploy_commit": "d" * 40,
+            "deploy_parent": module.ACCEPTED_DEPLOY_PARENT,
+            "deploy_tree": "e" * 40,
+        }
+        target_plugin = target["releases"]["plugin"]
+        target_plugin["digest"] = module.R5_DURABILITY_TARGET_PLUGIN_RELEASE
+        target_plugin["bundle_prefix"] = (
+            "staging/releases/plugin/" + module.R5_DURABILITY_TARGET_PLUGIN_RELEASE
+        )
+        payload = module.r5_durability_target_config()
+        target_config = target["files"][module.R5_CONFIG_PATH]
+        target_config["payload_b64"] = base64.b64encode(payload).decode("ascii")
+        target_config["payload_sha256"] = module.sha256(payload).hexdigest()
+        target["controller"]["config_sha256"] = module.sha256(payload).hexdigest()
+
+        validated = module.validate_r5_durability_authority(baseline, target)
+        self.assertEqual(
+            validated["releases"]["plugin"]["digest"],
+            module.R5_DURABILITY_TARGET_PLUGIN_RELEASE,
+        )
+        self.assertEqual(
+            validated["files"][module.R5_CONFIG_PATH]["payload_sha256"],
+            module.R5_DURABILITY_TARGET_CONFIG_SHA256,
+        )
+        for field in ("builder", "image", "parent"):
+            hostile = module.json.loads(module.canonical(target))
+            hostile[field] = module.json.loads(module.canonical(target[field]))
+            key = sorted(hostile[field])[0]
+            hostile[field][key] = "substituted"
+            with self.subTest(field=field), self.assertRaises(
+                module.ProductionPlanRejected
+            ):
+                module.validate_r5_durability_authority(baseline, hostile)
+        for release in ("core", "runtime"):
+            hostile = module.json.loads(module.canonical(target))
+            hostile["releases"][release]["digest"] = "0" * 64
+            with self.subTest(release=release), self.assertRaises(
+                module.ProductionPlanRejected
+            ):
+                module.validate_r5_durability_authority(baseline, hostile)
+        protected_path = next(
+            path for path in sorted(module.FILE_ROLES) if path != module.R5_CONFIG_PATH
+        )
+        hostile = module.json.loads(module.canonical(target))
+        hostile["files"][protected_path]["payload_sha256"] = "0" * 64
+        with self.assertRaises(module.ProductionPlanRejected):
+            module.validate_r5_durability_authority(baseline, hostile)
+
+    def test_r5_durability_source_constants_and_target_payload_are_frozen(self) -> None:
+        self.assertEqual(
+            module.R5_DURABILITY_TARGET_PLUGIN_RELEASE,
+            "a85c745dd40b4c29e8e49072475fdbed6454bbacbbe5d373cf6144b265aff4af",
+        )
+        payload = module.r5_durability_target_config()
+        self.assertEqual(
+            module.sha256(payload).hexdigest(),
+            "c1a20bd08ce3c56e1d273bed0e176c2f6a980d3c5373592c83a03db4d6412c63",
+        )
+        decoded = module.json.loads(payload.decode("ascii"))
+        self.assertEqual(
+            decoded["gateway_release"], module.R5_DURABILITY_TARGET_PLUGIN_RELEASE
+        )
+        self.assertNotIn(module.R5_DURABILITY_BASELINE_PLUGIN_RELEASE, payload.decode())
 
     def test_immutable_hybrid_builder_policy_and_boundaries_remain_finite(self) -> None:
         policy = module.source_policy()

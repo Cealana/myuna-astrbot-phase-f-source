@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from contextlib import ExitStack
 from dataclasses import replace
 import copy
 from hashlib import sha256
@@ -154,6 +155,30 @@ def authority(seed: int = 19001) -> dict[str, object]:
             "deploy_tree": "1" * 40,
         },
     })
+
+
+def selected_root_phase_authority(
+    phase: str = "POST_WRITER",
+) -> dict[str, object]:
+    post_writer = phase == "POST_WRITER"
+    return {
+        "archive_parent_identity": product.ATTEMPT5_ARCHIVE_PARENT_IDENTITY,
+        "attempt": 5,
+        "attempt6_absent": True,
+        "attempt_consumed": post_writer,
+        "domain": "phase-f.fixed-product-supervised-activation",
+        "network_projection_sha256": (
+            product._SELECTED_ROOT_NETWORK_PROJECTION_SHA256
+        ),
+        "phase": phase,
+        "product_authority_sha256": product.ATTEMPT5_PRODUCT_AUTHORITY_SHA256,
+        "product_controller_release": product.ATTEMPT5_PRODUCT_CONTROLLER_RELEASE,
+        "product_plan_sha256": product.ATTEMPT5_PRODUCT_ENTRY_PLAN_SHA256,
+        "schema": "myuna.phase-f.post-writer-selected-root-authority.v1",
+        "selected_root_identity": product.ATTEMPT5_PRIOR_ARCHIVE_CHILD_IDENTITY,
+        "version": 1,
+        "writer_bound": post_writer,
+    }
 
 
 def observation(
@@ -600,6 +625,205 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
                 module._private_root_handle_count(
                     Path(module.product.MEMORY_RUNTIME_ROOT)
                 )
+
+    def test_selected_root_phase_boundary_is_content_free_and_fail_closed(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            root.chmod(0o700)
+            legacy = root / product.LEGACY_MEMORY_ARCHIVE_ID
+            placeholder = root / "selected-placeholder"
+            legacy.mkdir(mode=0o700)
+            placeholder.mkdir(mode=0o700)
+            parent_identity = module._directory_identity(root.stat())
+            uid = os.getuid()
+            gid = os.getgid()
+            with mock.patch.object(
+                product,
+                "MEMORY_RUNTIME_ROOT",
+                root.as_posix(),
+            ), mock.patch.object(
+                product,
+                "MEMORY_RUNTIME_UID",
+                uid,
+            ), mock.patch.object(
+                product,
+                "MEMORY_RUNTIME_GID",
+                gid,
+            ), mock.patch.object(
+                product,
+                "ATTEMPT5_ARCHIVE_PARENT_IDENTITY",
+                parent_identity,
+            ):
+                selected_name = product.stable_attempt_archive_child_name()
+                selected_path = root / selected_name
+                placeholder.rename(selected_path)
+                selected_identity = module._directory_identity(
+                    selected_path.stat()
+                )
+                with mock.patch.object(
+                    product,
+                    "ATTEMPT5_PRIOR_ARCHIVE_CHILD_IDENTITY",
+                    selected_identity,
+                ):
+                    selected = authority()
+                    phase = selected_root_phase_authority()
+                    parent_state = {
+                        "manifest_sha256": product.PARENT_MANIFEST_SHA256,
+                        "selector_sha256": product.PARENT_SELECTOR_SHA256,
+                        "state": "TARGET",
+                    }
+                    network_state = {
+                        "identity": "network-object",
+                        "member_ids": [],
+                        "name": product.NETWORK_NAME,
+                        "projection_sha256": (
+                            product._SELECTED_ROOT_NETWORK_PROJECTION_SHA256
+                        ),
+                        "state": "TARGET",
+                    }
+                    opaque = selected_path / "opaque-private-state"
+                    opaque.write_bytes(b"generated-synthetic\n")
+                    original_listdir = os.listdir
+
+                    def no_selected_enumeration(value: object) -> list[str]:
+                        if (
+                            type(value) is int
+                            and os.fstat(value).st_ino
+                            == selected_path.stat().st_ino
+                        ):
+                            raise AssertionError("selected root enumerated")
+                        return original_listdir(value)
+
+                    with mock.patch.object(
+                        product,
+                        "_selected_root_phase_authority",
+                        return_value=phase,
+                    ), mock.patch.object(
+                        module,
+                        "_private_root_handle_count",
+                        return_value=0,
+                    ), mock.patch.object(
+                        module.os,
+                        "listdir",
+                        side_effect=no_selected_enumeration,
+                    ):
+                        observed = module._archive_root_observation(
+                            selected,
+                            parent_state=parent_state,
+                            network_state=network_state,
+                        )
+                    self.assertEqual(observed["state"], "TARGET")
+                    self.assertEqual(observed["selected_state"], "TARGET")
+                    self.assertEqual(
+                        observed["selected_identity"],
+                        selected_identity,
+                    )
+
+                    hostile_phase = (
+                        ("attempt", 6),
+                        ("attempt6_absent", False),
+                        ("attempt_consumed", False),
+                        ("writer_bound", False),
+                        ("selected_root_identity", "0" * 64),
+                        ("archive_parent_identity", "1" * 64),
+                        ("product_authority_sha256", "2" * 64),
+                        ("product_controller_release", "3" * 64),
+                        ("product_plan_sha256", "4" * 64),
+                    )
+                    for field, value in hostile_phase:
+                        changed = {**phase, field: value}
+                        with self.subTest(field=field), mock.patch.object(
+                            product,
+                            "_selected_root_phase_authority",
+                            return_value=changed,
+                        ), mock.patch.object(module, "_command") as runner:
+                            with self.assertRaises(module.MemoryActivationRejected):
+                                module._archive_root_observation(
+                                    selected,
+                                    parent_state=parent_state,
+                                    network_state=network_state,
+                                )
+                            runner.assert_not_called()
+                    missing = {**phase}
+                    missing.pop("attempt6_absent")
+                    with mock.patch.object(
+                        product,
+                        "_selected_root_phase_authority",
+                        return_value=missing,
+                    ), mock.patch.object(module, "_command") as runner:
+                        with self.assertRaises(module.MemoryActivationRejected):
+                            module._archive_root_observation(
+                                selected,
+                                parent_state=parent_state,
+                                network_state=network_state,
+                            )
+                        runner.assert_not_called()
+
+                    for field, value in (
+                        ("parent", {**parent_state, "state": "THIRD_STATE"}),
+                        (
+                            "network",
+                            {**network_state, "projection_sha256": "5" * 64},
+                        ),
+                    ):
+                        with self.subTest(field=field), mock.patch.object(
+                            product,
+                            "_selected_root_phase_authority",
+                            return_value=phase,
+                        ):
+                            with self.assertRaises(module.MemoryActivationRejected):
+                                module._archive_root_observation(
+                                    selected,
+                                    parent_state=(
+                                        value if field == "parent" else parent_state
+                                    ),
+                                    network_state=(
+                                        value if field == "network" else network_state
+                                    ),
+                                )
+
+                    with mock.patch.object(
+                        product,
+                        "_selected_root_phase_authority",
+                        return_value=phase,
+                    ), mock.patch.object(
+                        module,
+                        "_private_root_handle_count",
+                        return_value=1,
+                    ):
+                        handled = module._archive_root_observation(
+                            selected,
+                            parent_state=parent_state,
+                            network_state=network_state,
+                        )
+                    self.assertEqual(handled["state"], "THIRD_STATE")
+
+                    opaque.unlink()
+                    pre_writer = selected_root_phase_authority("PRE_WRITER")
+                    with mock.patch.object(
+                        product,
+                        "_selected_root_phase_authority",
+                        return_value=pre_writer,
+                    ), mock.patch.object(
+                        module,
+                        "_private_root_handle_count",
+                        return_value=0,
+                    ):
+                        empty = module._archive_root_observation(
+                            selected,
+                            parent_state=parent_state,
+                            network_state=network_state,
+                        )
+                        opaque.write_bytes(b"generated-synthetic\n")
+                        populated = module._archive_root_observation(
+                            selected,
+                            parent_state=parent_state,
+                            network_state=network_state,
+                        )
+                    self.assertEqual(empty["state"], "TARGET")
+                    self.assertEqual(populated["state"], "THIRD_STATE")
 
     def test_service_observation_uses_exact_named_properties(self) -> None:
         fragment = "/etc/systemd/system/" + module.RUNTIME_SERVICE
@@ -2684,6 +2908,16 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
                 module, "_old_container_observation", return_value=old
             ), mock.patch.object(
                 module, "_target_container_observation", return_value=absent
+            ), mock.patch.object(
+                product,
+                "_selected_root_phase_authority",
+                side_effect=lambda: selected_root_phase_authority("PRE_WRITER"),
+            ), mock.patch.object(
+                module,
+                "_parent_observation",
+                return_value={},
+            ), mock.patch.object(
+                module, "_network_observation", return_value={}
             ):
                 selected = authority()
                 before = module._archive_root_observation(selected)
@@ -3570,6 +3804,317 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
         self.assertEqual(terminal["callbacks"], 0)
         self.assertIsNone(terminal["next_stage"])
         self.assertEqual(terminal["reason"], "corrected_stopped_recovery_terminal")
+
+    def test_r5_durability_old_target_partial_third_and_aba_matrix(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = root / "r5-resume-v1.json"
+            unit = root / "r5.service"
+            target_release = root / "target-release"
+            baseline_release = root / "baseline-release"
+            target_release.mkdir()
+            baseline_release.mkdir()
+            old_config = b"old-config\n"
+            old_unit = b"old-unit\n"
+            target_unit = b"target-unit\n"
+            config.write_bytes(old_config)
+            config.chmod(0o600)
+            unit.write_bytes(old_unit)
+            unit.chmod(0o644)
+            target_authority = {"authority": "target"}
+            baseline_authority = {"authority": "baseline"}
+            original_observation = module._file_observation
+
+            def observe(path: Path) -> dict[str, object]:
+                row = original_observation(path)
+                if row["kind"] == "regular":
+                    row["uid"] = 0
+                    row["gid"] = 0
+                return row
+
+            writes: list[Path] = []
+
+            def write(path: Path, payload: bytes, mode: int, uid: int, gid: int) -> None:
+                writes.append(path)
+                path.write_bytes(payload)
+                path.chmod(mode)
+
+            render = lambda selected, _authority: (
+                target_unit if selected == target_release else old_unit
+            )
+            common = (
+                mock.patch.object(module, "UNIT_PATH", unit),
+                mock.patch.object(product, "R5_CONFIG_PATH", config.as_posix()),
+                mock.patch.object(
+                    product,
+                    "R5_DURABILITY_BASELINE_CONFIG_SHA256",
+                    sha256(old_config).hexdigest(),
+                ),
+                mock.patch.object(
+                    product,
+                    "R5_DURABILITY_BASELINE_UNIT_SHA256",
+                    sha256(old_unit).hexdigest(),
+                ),
+                mock.patch.object(
+                    product, "validate_r5_durability_authority", return_value=target_authority
+                ),
+                mock.patch.object(module, "_render_controller_unit", side_effect=render),
+                mock.patch.object(module, "_file_observation", side_effect=observe),
+                mock.patch.object(module, "_atomic_file", side_effect=write),
+                mock.patch.object(module, "_r5_durability_daemon_reload"),
+                mock.patch.object(
+                    module.resume,
+                    "verify_fixed_controller_release",
+                    return_value=target_authority,
+                ),
+            )
+            with ExitStack() as stack:
+                for selected in common:
+                    stack.enter_context(selected)
+                result = module._install_r5_durability_pair(
+                    target_release,
+                    target_authority,
+                    baseline_release,
+                    baseline_authority,
+                )
+                self.assertEqual(result["callbacks"], 3)
+                self.assertEqual(result["status"], "R5_DURABILITY_TARGET")
+                self.assertEqual(writes, [config, unit])
+                writes.clear()
+                repeated = module._install_r5_durability_pair(
+                    target_release,
+                    target_authority,
+                    baseline_release,
+                    baseline_authority,
+                )
+                self.assertEqual(repeated["callbacks"], 0)
+                self.assertEqual(writes, [])
+
+                unit.write_bytes(old_unit)
+                with self.assertRaisesRegex(
+                    module.MemoryActivationRejected,
+                    "r5_durability_pair_state_rejected",
+                ):
+                    module._install_r5_durability_pair(
+                        target_release,
+                        target_authority,
+                        baseline_release,
+                        baseline_authority,
+                    )
+                self.assertEqual(writes, [])
+                config.write_bytes(b"third-state\n")
+                with self.assertRaisesRegex(
+                    module.MemoryActivationRejected,
+                    "r5_durability_pair_state_rejected",
+                ):
+                    module._install_r5_durability_pair(
+                        target_release,
+                        target_authority,
+                        baseline_release,
+                        baseline_authority,
+                    )
+                self.assertEqual(writes, [])
+
+        old_config_row = {
+            "gid": 0,
+            "identity": "before",
+            "kind": "regular",
+            "mode": "0600",
+            "payload_b64": base64.b64encode(b"old").decode("ascii"),
+            "sha256": "a" * 64,
+            "uid": 0,
+        }
+        old_unit_row = {
+            **old_config_row,
+            "mode": "0644",
+            "sha256": sha256(b"baseline").hexdigest(),
+        }
+        changed = {**old_config_row, "identity": "after"}
+        with mock.patch.object(product, "R5_DURABILITY_BASELINE_CONFIG_SHA256", "a" * 64), mock.patch.object(
+            product,
+            "R5_DURABILITY_BASELINE_UNIT_SHA256",
+            sha256(b"baseline").hexdigest(),
+        ), mock.patch.object(product, "R5_CONFIG_PATH", "/synthetic/config"), mock.patch.object(
+            product, "validate_r5_durability_authority"
+        ), mock.patch.object(module, "_render_controller_unit", return_value=b"baseline"), mock.patch.object(
+            module, "_file_observation", side_effect=(old_config_row, old_unit_row, changed, old_unit_row)
+        ), mock.patch.object(module, "_atomic_file") as atomic:
+            with self.assertRaisesRegex(
+                module.MemoryActivationRejected, "r5_durability_pair_aba_rejected"
+            ):
+                module._install_r5_durability_pair(
+                    Path("/target"), {}, Path("/baseline"), {}
+                )
+        atomic.assert_not_called()
+
+    def test_r5_durability_faults_roll_back_or_stop_manual(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = root / "config"
+            unit = root / "unit"
+            target_release = root / "target"
+            baseline_release = root / "baseline"
+            target_release.mkdir()
+            baseline_release.mkdir()
+            old_config = b"old-config\n"
+            old_unit = b"old-unit\n"
+            target_unit = b"target-unit\n"
+            target_authority = {"authority": "target"}
+            original_observation = module._file_observation
+
+            def observe(path: Path) -> dict[str, object]:
+                row = original_observation(path)
+                row["uid"] = 0
+                row["gid"] = 0
+                return row
+
+            def run_fault(failure: str) -> None:
+                config.write_bytes(old_config)
+                config.chmod(0o600)
+                unit.write_bytes(old_unit)
+                unit.chmod(0o644)
+                calls = 0
+
+                def write(path: Path, payload: bytes, mode: int, uid: int, gid: int) -> None:
+                    nonlocal calls
+                    calls += 1
+                    if (failure == "config" and calls == 1) or (
+                        failure == "unit" and calls == 2
+                    ):
+                        raise module.MemoryActivationRejected("injected-write")
+                    path.write_bytes(payload)
+                    path.chmod(mode)
+
+                reloads = 0
+
+                def reload() -> None:
+                    nonlocal reloads
+                    reloads += 1
+                    if failure == "reload" and reloads == 1:
+                        raise module.MemoryActivationRejected("injected-reload")
+
+                render = lambda selected, _authority: (
+                    target_unit if selected == target_release else old_unit
+                )
+                with mock.patch.object(module, "UNIT_PATH", unit), mock.patch.object(
+                    product, "R5_CONFIG_PATH", config.as_posix()
+                ), mock.patch.object(
+                    product,
+                    "R5_DURABILITY_BASELINE_CONFIG_SHA256",
+                    sha256(old_config).hexdigest(),
+                ), mock.patch.object(
+                    product,
+                    "R5_DURABILITY_BASELINE_UNIT_SHA256",
+                    sha256(old_unit).hexdigest(),
+                ), mock.patch.object(
+                    product, "validate_r5_durability_authority", return_value=target_authority
+                ), mock.patch.object(
+                    module, "_render_controller_unit", side_effect=render
+                ), mock.patch.object(
+                    module, "_file_observation", side_effect=observe
+                ), mock.patch.object(
+                    module, "_atomic_file", side_effect=write
+                ), mock.patch.object(
+                    module, "_r5_durability_daemon_reload", side_effect=reload
+                ):
+                    with self.assertRaisesRegex(
+                        module.MemoryActivationRejected,
+                        "r5_durability_install_rolled_back",
+                    ):
+                        module._install_r5_durability_pair(
+                            target_release,
+                            target_authority,
+                            baseline_release,
+                            {},
+                        )
+                self.assertEqual(config.read_bytes(), old_config)
+                self.assertEqual(unit.read_bytes(), old_unit)
+
+            for failure in ("config", "unit", "reload"):
+                with self.subTest(failure=failure):
+                    run_fault(failure)
+
+            config.write_bytes(old_config)
+            config.chmod(0o600)
+            unit.write_bytes(old_unit)
+            unit.chmod(0o644)
+            calls = 0
+
+            def unrecoverable(path: Path, payload: bytes, mode: int, uid: int, gid: int) -> None:
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    config.write_bytes(b"ambiguous\n")
+                    raise module.MemoryActivationRejected("lost-return")
+                raise module.MemoryActivationRejected("rollback-failed")
+
+            with mock.patch.object(module, "UNIT_PATH", unit), mock.patch.object(
+                product, "R5_CONFIG_PATH", config.as_posix()
+            ), mock.patch.object(
+                product,
+                "R5_DURABILITY_BASELINE_CONFIG_SHA256",
+                sha256(old_config).hexdigest(),
+            ), mock.patch.object(
+                product, "R5_DURABILITY_BASELINE_UNIT_SHA256", sha256(old_unit).hexdigest()
+            ), mock.patch.object(product, "validate_r5_durability_authority"), mock.patch.object(
+                module,
+                "_render_controller_unit",
+                side_effect=lambda selected, _authority: target_unit if selected == target_release else old_unit,
+            ), mock.patch.object(module, "_file_observation", side_effect=observe), mock.patch.object(
+                module, "_atomic_file", side_effect=unrecoverable
+            ):
+                with self.assertRaisesRegex(
+                    module.MemoryActivationRejected,
+                    "r5_durability_manual_recovery_required",
+                ):
+                    module._install_r5_durability_pair(
+                        target_release, target_authority, baseline_release, {}
+                    )
+
+    def test_atomic_file_short_write_and_durability_faults_are_typed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary) / "target"
+            original_write = os.write
+
+            def short_write(descriptor: int, payload: bytes) -> int:
+                return original_write(descriptor, payload[:1])
+
+            with mock.patch.object(os, "fchown"), mock.patch.object(
+                os, "write", side_effect=short_write
+            ):
+                module._atomic_file(target, b"short-write-completes\n", 0o600, 0, 0)
+            self.assertEqual(target.read_bytes(), b"short-write-completes\n")
+
+            for fault, patches in (
+                (
+                    "zero-write",
+                    (mock.patch.object(os, "fchown"), mock.patch.object(os, "write", return_value=0)),
+                ),
+                (
+                    "file-fsync",
+                    (mock.patch.object(os, "fchown"), mock.patch.object(os, "fsync", side_effect=OSError("fsync"))),
+                ),
+                (
+                    "replace",
+                    (mock.patch.object(os, "fchown"), mock.patch.object(os, "replace", side_effect=OSError("replace"))),
+                ),
+                (
+                    "parent-fsync",
+                    (
+                        mock.patch.object(os, "fchown"),
+                        mock.patch.object(os, "fsync", side_effect=(None, OSError("parent"))),
+                    ),
+                ),
+            ):
+                with self.subTest(fault=fault):
+                    active = [selected.start() for selected in patches]
+                    try:
+                        with self.assertRaises(module.MemoryActivationRejected):
+                            module._atomic_file(target, b"fault\n", 0o600, 0, 0)
+                    finally:
+                        for selected in reversed(patches):
+                            selected.stop()
+                    self.assertEqual(len(active), len(patches))
 
     def test_source_has_no_generic_owner_or_private_database_primitive(self) -> None:
         text = MODULE_PATH.read_text("utf-8")
