@@ -4409,7 +4409,9 @@ def main() -> int:
         "fixed_action_ambiguous",
     )
     require(
-        not values.supervised_start or values.stage == "ARM_AND_START_TARGET_ONCE",
+        not values.supervised_start
+        or values.stage
+        in {"ARM_AND_START_TARGET_ONCE", "RESUME_ATTEMPT5_TARGET_ONCE"},
         "fixed_supervised_decision_rejected",
     )
     if values.install_current_controller_unit:

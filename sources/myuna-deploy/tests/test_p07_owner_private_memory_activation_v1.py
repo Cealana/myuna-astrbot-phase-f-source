@@ -4355,6 +4355,70 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
                             selected.stop()
                     self.assertEqual(len(active), len(patches))
 
+    def test_cli_supervised_stage_matrix_is_finite_and_owner_guarded(self) -> None:
+        accepted = {
+            "ARM_AND_START_TARGET_ONCE",
+            "RESUME_ATTEMPT5_TARGET_ONCE",
+        }
+
+        for stage in sorted(accepted):
+            with self.subTest(stage=stage, grant="exact"), mock.patch.object(
+                sys,
+                "argv",
+                ["activate", "--stage", stage, "--supervised-start"],
+            ), mock.patch.object(
+                module,
+                "fixed_owner_entry",
+                return_value=75,
+            ) as owner:
+                self.assertEqual(module.main(), 75)
+                owner.assert_called_once_with(
+                    stage=stage,
+                    supervised_start=True,
+                )
+
+        rejected = [None] + [
+            stage for stage in product.FIXED_STAGES if stage not in accepted
+        ]
+        for stage in rejected:
+            argv = ["activate", "--supervised-start"]
+            if stage is not None:
+                argv.extend(("--stage", stage))
+            with self.subTest(stage=stage, grant="extra"), mock.patch.object(
+                sys,
+                "argv",
+                argv,
+            ), mock.patch.object(module, "fixed_owner_entry") as owner:
+                with self.assertRaisesRegex(
+                    module.MemoryActivationRejected,
+                    "fixed_supervised_decision_rejected",
+                ):
+                    module.main()
+                owner.assert_not_called()
+
+        def guarded_owner(*, stage: str | None, supervised_start: bool) -> int:
+            if (stage in accepted) != supervised_start:
+                raise module.MemoryActivationRejected(
+                    "fixed_supervised_decision_rejected"
+                )
+            return 75
+
+        for stage in sorted(accepted):
+            with self.subTest(stage=stage, grant="missing"), mock.patch.object(
+                sys, "argv", ["activate", "--stage", stage]
+            ), mock.patch.object(
+                module, "fixed_owner_entry", side_effect=guarded_owner
+            ) as owner:
+                with self.assertRaisesRegex(
+                    module.MemoryActivationRejected,
+                    "fixed_supervised_decision_rejected",
+                ):
+                    module.main()
+                owner.assert_called_once_with(
+                    stage=stage,
+                    supervised_start=False,
+                )
+
     def test_source_has_no_generic_owner_or_private_database_primitive(self) -> None:
         text = MODULE_PATH.read_text("utf-8")
         for forbidden in (
