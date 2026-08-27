@@ -186,6 +186,7 @@ def observation(
     *,
     files_old: bool = False,
     third_path: str | None = None,
+    all_third: bool = False,
     target_policy: str = "absent",
     target_active: bool = False,
     selected_present: bool = False,
@@ -215,8 +216,8 @@ def observation(
         old_payload = f"old:{index}:{path}\n".encode("ascii")
         old_hashes[path] = sha256(old_payload).hexdigest()
         old_payloads[path] = old_payload
-        if path == third_path:
-            payload = b"third-state\n"
+        if all_third or path == third_path:
+            payload = f"third-state:{index}\n".encode("ascii")
         elif files_old:
             payload = old_payload
         else:
@@ -1479,6 +1480,7 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
             for key in (
                 "archive_name",
                 "authority",
+                "checkpoint_contract",
                 "fixed_stages",
                 "observation",
                 "replacement_attempt6",
@@ -4592,6 +4594,955 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, text)
         self.assertEqual(text.count("run_fixed_product_activation("), 1)
+
+    def attempt6_checkpoint_plan(
+        self,
+        seed: int = 11,
+        *,
+        all_third: bool = False,
+    ) -> tuple[dict[str, object], dict[str, object]]:
+        selected = authority(seed)
+        third_path = sorted(product.FILE_ROLES)[0]
+        current, old_hashes, _old_payloads = observation(
+            selected,
+            third_path=third_path,
+            all_third=all_third,
+            target_policy="no",
+            selected_present=True,
+        )
+        current["old_container"] = {
+            "active": False,
+            "identity": product.ATTEMPT5_SOURCE_COMMAND_ROLLBACK_CONTAINER_ID,
+            "name": product.ATTEMPT5_SOURCE_COMMAND_ROLLBACK_NAME,
+            "policy": "no",
+            "state": "TARGET",
+        }
+        current["target_container"] = {
+            "active": False,
+            "identity": product.ATTEMPT5_DURABILITY_TARGET_CONTAINER_ID,
+            "name": product.CONTAINER_NAME,
+            "policy": "no",
+            "state": "TARGET",
+        }
+        current["archive_root"]["selected_identity"] = (
+            product.ATTEMPT5_PRIOR_ARCHIVE_CHILD_IDENTITY
+        )
+        current["network"]["member_ids"] = []
+        current["services"] = {
+            "core": {"active": True, "identity": "core-unit-identity"},
+            "runtime": {"active": False, "identity": "runtime-unit-identity"},
+            "socket": {"active": False, "identity": "socket-unit-identity"},
+        }
+        with mock.patch.dict(product.OLD_FILE_SHA256, old_hashes, clear=True):
+            plan = product.build_fixed_plan(selected, current)
+        return plan, selected
+
+    def test_attempt6_checkpoint_manifest_and_fresh_reopen_are_exact(self) -> None:
+        plan, _selected = self.attempt6_checkpoint_plan()
+        with tempfile.TemporaryDirectory() as temporary:
+            component = Path(temporary)
+            releases = component / "releases"
+            releases.mkdir()
+            checkpoint_root = component / "attempt6-third-state-checkpoints-v1"
+            with mock.patch.object(
+                module, "CONTROLLER_RELEASES_ROOT", releases
+            ), mock.patch.object(
+                module, "ATTEMPT6_CHECKPOINTS_ROOT", checkpoint_root
+            ), mock.patch.object(
+                module, "_effective_units_state", return_value="TARGET"
+            ), mock.patch.object(
+                module, "_private_root_handle_count", return_value=0
+            ):
+                manifest = module._attempt6_checkpoint_manifest(plan)
+                self.assertEqual(len(manifest["members"]), 7)
+                self.assertEqual(
+                    manifest["schema"],
+                    "myuna.phase-f.attempt6-third-state-checkpoint.v1",
+                )
+                self.assertTrue(manifest["rollback_only"])
+                self.assertFalse(manifest["target_truth_from_checkpoint"])
+                receipt = module._publish_attempt6_checkpoint(plan)
+                self.assertEqual(receipt["state"], "SEALED_CHECKPOINT")
+                self.assertEqual(receipt["member_count"], 7)
+                artifact = checkpoint_root / manifest["checkpoint_sha256"]
+                fresh = module._fresh_process_attempt6_checkpoint_reopen(
+                    artifact,
+                    plan["authority"],
+                )
+                self.assertEqual(
+                    fresh["checkpoint_sha256"], manifest["checkpoint_sha256"]
+                )
+                self.assertEqual(
+                    module._attempt6_checkpoint_artifact(plan)["state"],
+                    "SEALED_CHECKPOINT",
+                )
+
+    def test_attempt6_checkpoint_hostility_never_self_authorizes(self) -> None:
+        plan, _selected = self.attempt6_checkpoint_plan(29)
+        with tempfile.TemporaryDirectory() as temporary:
+            component = Path(temporary)
+            releases = component / "releases"
+            releases.mkdir()
+            checkpoint_root = component / "attempt6-third-state-checkpoints-v1"
+            with mock.patch.object(
+                module, "CONTROLLER_RELEASES_ROOT", releases
+            ), mock.patch.object(
+                module, "ATTEMPT6_CHECKPOINTS_ROOT", checkpoint_root
+            ), mock.patch.object(
+                module, "_effective_units_state", return_value="TARGET"
+            ), mock.patch.object(
+                module, "_private_root_handle_count", return_value=0
+            ):
+                receipt = module._publish_attempt6_checkpoint(plan)
+                artifact = checkpoint_root / receipt["checkpoint_sha256"]
+                first_member = artifact / "rollback-00.bin"
+                first_member.chmod(0o600)
+                with self.assertRaisesRegex(
+                    module.MemoryActivationRejected,
+                    "fixed_attempt6_checkpoint_reopen_rejected",
+                ):
+                    module._attempt6_checkpoint_reopen(
+                        artifact,
+                        plan["authority"],
+                    )
+                first_member.chmod(0o400)
+                manifest_path = artifact / "MANIFEST.json"
+                manifest_path.chmod(0o600)
+                manifest = json.loads(manifest_path.read_text("ascii"))
+                manifest["target_bindings"]["source_authority_sha256"] = "0" * 64
+                body = {
+                    key: value
+                    for key, value in manifest.items()
+                    if key != "checkpoint_sha256"
+                }
+                manifest["checkpoint_sha256"] = product.digest(
+                    "phase_f_attempt6_third_state_checkpoint_v1", body
+                )
+                manifest_path.write_bytes(module.canonical(manifest))
+                manifest_path.chmod(0o400)
+                with self.assertRaisesRegex(
+                    module.MemoryActivationRejected,
+                    "fixed_attempt6_checkpoint_reopen_rejected|fixed_attempt6_checkpoint_binding_rejected",
+                ):
+                    module._attempt6_checkpoint_artifact(plan)
+
+    def test_attempt6_checkpoint_open_handle_collision_and_partial_fail_closed(self) -> None:
+        plan, _selected = self.attempt6_checkpoint_plan()
+        with tempfile.TemporaryDirectory() as temporary:
+            component = Path(temporary)
+            releases = component / "releases"
+            releases.mkdir()
+            checkpoint_root = component / "attempt6-third-state-checkpoints-v1"
+            with mock.patch.object(
+                module, "CONTROLLER_RELEASES_ROOT", releases
+            ), mock.patch.object(
+                module, "ATTEMPT6_CHECKPOINTS_ROOT", checkpoint_root
+            ), mock.patch.object(
+                module, "_effective_units_state", return_value="TARGET"
+            ), mock.patch.object(
+                module, "_private_root_handle_count", return_value=1
+            ), self.assertRaisesRegex(
+                module.MemoryActivationRejected,
+                "fixed_attempt6_checkpoint_open_handle_rejected",
+            ):
+                module._publish_attempt6_checkpoint(plan)
+            self.assertFalse(checkpoint_root.exists())
+            checkpoint_root.mkdir(mode=0o700)
+            with mock.patch.object(
+                module, "CONTROLLER_RELEASES_ROOT", releases
+            ), mock.patch.object(
+                module, "ATTEMPT6_CHECKPOINTS_ROOT", checkpoint_root
+            ), mock.patch.object(
+                module, "_effective_units_state", return_value="TARGET"
+            ), mock.patch.object(
+                module, "_private_root_handle_count", return_value=0
+            ), self.assertRaisesRegex(
+                module.MemoryActivationRejected,
+                "fixed_attempt6_checkpoint_collision_rejected",
+            ):
+                module._publish_attempt6_checkpoint(plan)
+            checkpoint_root.rmdir()
+            self.assertFalse(checkpoint_root.exists())
+            checkpoint_root.mkdir(mode=0o700)
+            (checkpoint_root / "collision").mkdir()
+            with mock.patch.object(
+                module, "CONTROLLER_RELEASES_ROOT", releases
+            ), mock.patch.object(
+                module, "ATTEMPT6_CHECKPOINTS_ROOT", checkpoint_root
+            ), mock.patch.object(
+                module, "_effective_units_state", return_value="TARGET"
+            ), mock.patch.object(
+                module, "_private_root_handle_count", return_value=0
+            ), self.assertRaisesRegex(
+                module.MemoryActivationRejected,
+                "fixed_attempt6_checkpoint_collision_rejected",
+            ):
+                module._publish_attempt6_checkpoint(plan)
+
+    def test_attempt6_checkpoint_current_bindings_and_same_byte_aba_reject(
+        self,
+    ) -> None:
+        plan, _selected = self.attempt6_checkpoint_plan()
+        with tempfile.TemporaryDirectory() as temporary:
+            component = Path(temporary)
+            releases = component / "releases"
+            releases.mkdir()
+            checkpoint_root = component / "attempt6-third-state-checkpoints-v1"
+            with mock.patch.object(
+                module, "CONTROLLER_RELEASES_ROOT", releases
+            ), mock.patch.object(
+                module, "ATTEMPT6_CHECKPOINTS_ROOT", checkpoint_root
+            ), mock.patch.object(
+                module, "_effective_units_state", return_value="TARGET"
+            ), mock.patch.object(
+                module, "_private_root_handle_count", return_value=0
+            ):
+                receipt = module._publish_attempt6_checkpoint(plan)
+                manifest = receipt["manifest"]
+                self.assertEqual(
+                    manifest["current_bindings"]["schema"],
+                    "myuna.phase-f.attempt6-checkpoint-current-bindings.v1",
+                )
+                self.assertTrue(
+                    module._attempt6_checkpoint_matches_current(plan, manifest)
+                )
+                aba = copy.deepcopy(plan)
+                path = sorted(product.FILE_ROLES)[0]
+                aba["observation"]["files"][path]["identity"] = "a" * 64
+                aba["plan_sha256"] = product.digest(
+                    "phase_f_fixed_product_plan",
+                    {
+                        key: aba[key]
+                        for key in aba
+                        if key != "plan_sha256"
+                    },
+                )
+                aba = product.validate_fixed_plan(aba)
+                self.assertFalse(
+                    module._attempt6_checkpoint_matches_current(aba, manifest)
+                )
+                with self.assertRaisesRegex(
+                    module.MemoryActivationRejected,
+                    "fixed_attempt6_checkpoint_restore_rejected",
+                ):
+                    module._checkpoint_prefix(aba)
+
+                artifact = checkpoint_root / receipt["checkpoint_sha256"]
+                manifest_path = artifact / "MANIFEST.json"
+                manifest_path.chmod(0o600)
+                hostile = json.loads(manifest_path.read_text("ascii"))
+                hostile["current_bindings"]["source_prestate_sha256"] = "0" * 64
+                body = {
+                    key: value
+                    for key, value in hostile.items()
+                    if key != "checkpoint_sha256"
+                }
+                hostile["checkpoint_sha256"] = product.digest(
+                    "phase_f_attempt6_third_state_checkpoint_v1", body
+                )
+                manifest_path.write_bytes(module.canonical(hostile))
+                manifest_path.chmod(0o400)
+                renamed = checkpoint_root / hostile["checkpoint_sha256"]
+                artifact.rename(renamed)
+                with self.assertRaisesRegex(
+                    module.MemoryActivationRejected,
+                    "fixed_attempt6_checkpoint_reopen_rejected",
+                ):
+                    module._attempt6_checkpoint_artifact(plan)
+
+    def test_file_observation_identity_rejects_same_byte_new_inode_aba(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            selected = Path(temporary) / "governed"
+            selected.write_bytes(b"same bytes\n")
+            first = module._file_observation(selected)
+            metadata = selected.stat()
+            replacement = selected.with_name("replacement")
+            replacement.write_bytes(b"same bytes\n")
+            os.chmod(replacement, metadata.st_mode & 0o7777)
+            os.replace(replacement, selected)
+            second = module._file_observation(selected)
+            self.assertEqual(first["sha256"], second["sha256"])
+            self.assertEqual(first["mode"], second["mode"])
+            self.assertNotEqual(first["identity"], second["identity"])
+
+    def test_attempt6_checkpoint_every_current_binding_self_sign_rejects(
+        self,
+    ) -> None:
+        plan, _selected = self.attempt6_checkpoint_plan()
+        fields = tuple(
+            sorted(
+                {
+                    *plan["checkpoint_contract"][
+                        "current_binding_requirements"
+                    ],
+                    "source_prestate_sha256",
+                }
+            )
+        )
+        cases = tuple(("replace", field) for field in fields) + (
+            ("missing", fields[0]),
+            ("extra", "unexpected"),
+            ("reordered", "current_bindings"),
+        )
+        for operation, field in cases:
+            with self.subTest(operation=operation, field=field):
+                with tempfile.TemporaryDirectory() as temporary:
+                    component = Path(temporary)
+                    releases = component / "releases"
+                    releases.mkdir()
+                    checkpoint_root = (
+                        component / "attempt6-third-state-checkpoints-v1"
+                    )
+                    with mock.patch.object(
+                        module, "CONTROLLER_RELEASES_ROOT", releases
+                    ), mock.patch.object(
+                        module, "ATTEMPT6_CHECKPOINTS_ROOT", checkpoint_root
+                    ), mock.patch.object(
+                        module, "_effective_units_state", return_value="TARGET"
+                    ), mock.patch.object(
+                        module, "_private_root_handle_count", return_value=0
+                    ):
+                        receipt = module._publish_attempt6_checkpoint(plan)
+                        artifact = (
+                            checkpoint_root / receipt["checkpoint_sha256"]
+                        )
+                        manifest_path = artifact / "MANIFEST.json"
+                        manifest_path.chmod(0o600)
+                        hostile = json.loads(manifest_path.read_text("ascii"))
+                        current = hostile["current_bindings"]
+                        if operation == "replace":
+                            value = current[field]
+                            if isinstance(value, dict):
+                                value = copy.deepcopy(value)
+                                selected = sorted(value)[0]
+                                value[selected] = "0" * 64
+                            elif value == "TARGET":
+                                value = "OLD"
+                            else:
+                                value = "0" * 64
+                            current[field] = value
+                        elif operation == "missing":
+                            current.pop(field)
+                        elif operation == "extra":
+                            current[field] = "0" * 64
+                        body = {
+                            key: value
+                            for key, value in hostile.items()
+                            if key != "checkpoint_sha256"
+                        }
+                        hostile["checkpoint_sha256"] = product.digest(
+                            "phase_f_attempt6_third_state_checkpoint_v1",
+                            body,
+                        )
+                        payload = (
+                            json.dumps(
+                                {
+                                    **{
+                                        key: hostile[key]
+                                        for key in reversed(tuple(hostile))
+                                    },
+                                    "current_bindings": {
+                                        key: current[key]
+                                        for key in reversed(tuple(current))
+                                    },
+                                },
+                                separators=(",", ":"),
+                            ).encode("ascii")
+                            if operation == "reordered"
+                            else module.canonical(hostile)
+                        )
+                        manifest_path.write_bytes(payload)
+                        manifest_path.chmod(0o400)
+                        renamed = (
+                            checkpoint_root / hostile["checkpoint_sha256"]
+                        )
+                        artifact.rename(renamed)
+                        with self.assertRaisesRegex(
+                            module.MemoryActivationRejected,
+                            "fixed_attempt6_checkpoint_reopen_rejected",
+                        ):
+                            module._attempt6_checkpoint_artifact(plan)
+
+    def test_attempt6_checkpoint_publication_crash_matrix_is_exact(self) -> None:
+        plan, _selected = self.attempt6_checkpoint_plan(all_third=True)
+
+        def exercise(
+            kind: str,
+            fault_index: int,
+        ) -> tuple[int, int, bool, int]:
+            with tempfile.TemporaryDirectory() as temporary:
+                component = Path(temporary)
+                releases = component / "releases"
+                releases.mkdir()
+                checkpoint_root = (
+                    component / "attempt6-third-state-checkpoints-v1"
+                )
+                write_count = [0]
+                fsync_count = [0]
+                original_write = module.os.write
+                original_fsync = module.os.fsync
+
+                def selected_write(descriptor: int, payload: bytes) -> int:
+                    try:
+                        descriptor_path = os.readlink(
+                            f"/proc/self/fd/{descriptor}"
+                        )
+                    except OSError:
+                        descriptor_path = ""
+                    if "/.partial-" in descriptor_path:
+                        index = write_count[0]
+                        write_count[0] += 1
+                        if kind == "write" and index == fault_index:
+                            raise OSError("injected checkpoint write")
+                    return original_write(descriptor, payload)
+
+                def selected_fsync(descriptor: int) -> None:
+                    index = fsync_count[0]
+                    fsync_count[0] += 1
+                    if kind == "fsync" and index == fault_index:
+                        raise OSError("injected checkpoint fsync")
+                    original_fsync(descriptor)
+
+                def selected_rename(*_args: object) -> None:
+                    if kind == "rename":
+                        raise OSError("injected checkpoint rename")
+                    module.os.rename(
+                        _args[1],
+                        _args[2],
+                        src_dir_fd=_args[0],
+                        dst_dir_fd=_args[0],
+                    )
+
+                local_reopen = module._attempt6_checkpoint_reopen
+                fresh_reopen = module._fresh_process_attempt6_checkpoint_reopen
+
+                def selected_local(*args: object) -> dict[str, object]:
+                    if kind == "local_reopen":
+                        raise module.MemoryActivationRejected(
+                            "injected local reopen"
+                        )
+                    return local_reopen(*args)
+
+                def selected_fresh(*args: object) -> dict[str, object]:
+                    if kind == "fresh_reopen":
+                        raise module.MemoryActivationRejected(
+                            "injected fresh reopen"
+                        )
+                    return fresh_reopen(*args)
+
+                with mock.patch.object(
+                    module, "CONTROLLER_RELEASES_ROOT", releases
+                ), mock.patch.object(
+                    module, "ATTEMPT6_CHECKPOINTS_ROOT", checkpoint_root
+                ), mock.patch.object(
+                    module, "_effective_units_state", return_value="TARGET"
+                ), mock.patch.object(
+                    module, "_private_root_handle_count", return_value=0
+                ), mock.patch.object(
+                    module.os, "write", side_effect=selected_write
+                ), mock.patch.object(
+                    module.os, "fsync", side_effect=selected_fsync
+                ), mock.patch.object(
+                    module, "_rename_noreplace", side_effect=selected_rename
+                ), mock.patch.object(
+                    module,
+                    "_attempt6_checkpoint_reopen",
+                    side_effect=selected_local,
+                ), mock.patch.object(
+                    module,
+                    "_fresh_process_attempt6_checkpoint_reopen",
+                    side_effect=selected_fresh,
+                ):
+                    if kind == "success":
+                        result = module._publish_attempt6_checkpoint(plan)
+                        self.assertEqual(result["state"], "SEALED_CHECKPOINT")
+                    else:
+                        with self.assertRaises(
+                            (OSError, module.MemoryActivationRejected)
+                        ):
+                            module._publish_attempt6_checkpoint(plan)
+                entries = (
+                    tuple(checkpoint_root.iterdir())
+                    if checkpoint_root.exists()
+                    else ()
+                )
+                return (
+                    write_count[0],
+                    fsync_count[0],
+                    checkpoint_root.exists(),
+                    len(entries),
+                )
+
+        writes, fsyncs, root_exists, entries = exercise("success", -1)
+        self.assertEqual(writes, 8)
+        self.assertEqual(fsyncs, 11)
+        self.assertTrue(root_exists)
+        self.assertEqual(entries, 1)
+        for index in range(8):
+            with self.subTest(boundary="member_or_manifest_write", index=index):
+                _writes, _fsyncs, root_exists, entries = exercise(
+                    "write", index
+                )
+                self.assertFalse(root_exists)
+                self.assertEqual(entries, 0)
+        for index in range(11):
+            with self.subTest(boundary="file_or_directory_fsync", index=index):
+                _writes, _fsyncs, root_exists, entries = exercise(
+                    "fsync", index
+                )
+                self.assertEqual(root_exists, index == 10)
+                self.assertEqual(entries, 1 if index == 10 else 0)
+        for boundary in ("rename",):
+            with self.subTest(boundary=boundary):
+                _writes, _fsyncs, root_exists, entries = exercise(boundary, 0)
+                self.assertFalse(root_exists)
+                self.assertEqual(entries, 0)
+        for boundary in ("local_reopen", "fresh_reopen"):
+            with self.subTest(boundary=boundary):
+                _writes, _fsyncs, root_exists, entries = exercise(boundary, 0)
+                self.assertTrue(root_exists)
+                self.assertEqual(entries, 1)
+
+    def test_attempt6_checkpoint_product_and_reverse_crash_matrix_is_exact(
+        self,
+    ) -> None:
+        def exercise(kind: str, fault_index: int) -> tuple[dict[str, object], list[str]]:
+            plan, selected = self.attempt6_checkpoint_plan(all_third=True)
+            live = copy.deepcopy(plan["observation"])
+            calls: list[str] = []
+            original_file_observation = module._file_observation
+            install_count = [0]
+            reverse_count = [0]
+            reload_count = [0]
+            fresh_count = [0]
+            handle_count = [0]
+
+            def file_observation(path: Path) -> dict[str, object]:
+                if path.as_posix() in live["files"]:
+                    return {
+                        key: value
+                        for key, value in live["files"][
+                            path.as_posix()
+                        ].items()
+                        if key != "state"
+                    }
+                return original_file_observation(path)
+
+            def install(path: str, row: dict[str, object]) -> None:
+                index = install_count[0]
+                install_count[0] += 1
+                calls.append(f"forward:{index}")
+                live["files"][path] = {
+                    "gid": row["gid"],
+                    "identity": sha256(
+                        f"target:{index}:{path}".encode()
+                    ).hexdigest(),
+                    "kind": "regular",
+                    "mode": row["mode"],
+                    "payload_b64": row["payload_b64"],
+                    "sha256": row["payload_sha256"],
+                    "state": "TARGET",
+                    "uid": row["uid"],
+                }
+                if kind == "product_write" and index == fault_index:
+                    raise module.MemoryActivationRejected(
+                        "injected product write lost return"
+                    )
+
+            def atomic(
+                path: Path,
+                payload: bytes,
+                mode: int,
+                uid: int,
+                gid: int,
+            ) -> None:
+                index = reverse_count[0]
+                reverse_count[0] += 1
+                calls.append(f"reverse:{index}")
+                if kind == "reverse_write" and index == fault_index:
+                    raise module.MemoryActivationRejected(
+                        "injected reverse write"
+                    )
+                live["files"][path.as_posix()] = {
+                    "gid": gid,
+                    "identity": sha256(
+                        f"restored-new-inode:{index}:{path}".encode()
+                    ).hexdigest(),
+                    "kind": "regular",
+                    "mode": f"0{mode:03o}",
+                    "payload_b64": base64.b64encode(payload).decode("ascii"),
+                    "sha256": sha256(payload).hexdigest(),
+                    "state": "THIRD_STATE",
+                    "uid": uid,
+                }
+
+            def service(unit: str) -> dict[str, object]:
+                self.assertEqual(unit, module.CORE_SERVICE)
+                return copy.deepcopy(live["services"]["core"])
+
+            def stop(_unit: str) -> None:
+                calls.append("core_stop")
+                live["services"]["core"]["active"] = False
+                if kind == "core_stop":
+                    raise module.MemoryActivationRejected(
+                        "injected core stop lost return"
+                    )
+
+            def reload_units() -> None:
+                index = reload_count[0]
+                reload_count[0] += 1
+                calls.append(f"reload:{index}")
+                if kind in {
+                    "forward_reload",
+                    "reverse_write",
+                    "reverse_reload",
+                } and index == 0:
+                    raise module.MemoryActivationRejected(
+                        "injected forward reload"
+                    )
+                if kind == "reverse_reload" and index == 1:
+                    raise module.MemoryActivationRejected(
+                        "injected reverse reload"
+                    )
+
+            def fresh(_authority: dict[str, object]) -> dict[str, object]:
+                index = fresh_count[0]
+                fresh_count[0] += 1
+                calls.append(f"fresh:{index}")
+                if kind == "continuity" and index == 0:
+                    raise module.MemoryActivationRejected(
+                        "injected final continuity observation"
+                    )
+                observed = copy.deepcopy(live)
+                if kind == "aba_continuity" and index == 0:
+                    path = sorted(product.FILE_ROLES)[0]
+                    observed["files"][path]["identity"] = "a" * 64
+                if kind == "selector_continuity" and index == 0:
+                    observed["archive_root"]["selected_identity"] = "b" * 64
+                return product.build_fixed_plan(selected, observed)
+
+            def handles(_path: Path) -> int:
+                index = handle_count[0]
+                handle_count[0] += 1
+                return 1 if kind == "final_open_handle" and index >= 7 else 0
+
+            with tempfile.TemporaryDirectory() as temporary:
+                component = Path(temporary)
+                releases = component / "releases"
+                releases.mkdir()
+                checkpoint_root = (
+                    component / "attempt6-third-state-checkpoints-v1"
+                )
+                with mock.patch.object(
+                    module, "CONTROLLER_RELEASES_ROOT", releases
+                ), mock.patch.object(
+                    module, "ATTEMPT6_CHECKPOINTS_ROOT", checkpoint_root
+                ), mock.patch.object(
+                    module, "_effective_units_state", return_value="TARGET"
+                ), mock.patch.object(
+                    module, "_private_root_handle_count", side_effect=handles
+                ), mock.patch.object(
+                    module, "_file_observation", side_effect=file_observation
+                ), mock.patch.object(
+                    module, "_install_target_file", side_effect=install
+                ), mock.patch.object(
+                    module, "_atomic_file", side_effect=atomic
+                ), mock.patch.object(
+                    module, "_service_observation", side_effect=service
+                ), mock.patch.object(
+                    module, "_stop_service", side_effect=stop
+                ), mock.patch.object(
+                    module,
+                    "_daemon_reload_and_verify",
+                    side_effect=reload_units,
+                ), mock.patch.object(
+                    module, "_fresh_checkpoint_plan", side_effect=fresh
+                ):
+                    result = module.run_checkpointed_stage(
+                        plan,
+                        requested_stage=(
+                            "CHECKPOINTED_THIRD_STATE_TO_TARGET"
+                        ),
+                        supervised_start=False,
+                    )
+                return result, calls
+
+        result, calls = exercise("continuity", 0)
+        self.assertEqual(result["status"], "SUPERVISED_MANUAL_REQUIRED")
+        self.assertEqual(result["callbacks"], 1)
+        self.assertNotIn("core_stop", calls)
+        self.assertFalse(any(call.startswith("forward:") for call in calls))
+
+        for boundary in (
+            "aba_continuity",
+            "selector_continuity",
+            "final_open_handle",
+        ):
+            with self.subTest(boundary=boundary):
+                result, calls = exercise(boundary, 0)
+                self.assertEqual(
+                    result["status"], "SUPERVISED_MANUAL_REQUIRED"
+                )
+                self.assertEqual(result["callbacks"], 1)
+                self.assertNotIn("core_stop", calls)
+                self.assertFalse(
+                    any(call.startswith("forward:") for call in calls)
+                )
+
+        result, calls = exercise("core_stop", 0)
+        self.assertEqual(result["prefix_after"], "CHECKPOINT_RESTORED")
+        self.assertEqual(result["callbacks"], 2)
+        self.assertFalse(any(call.startswith("forward:") for call in calls))
+
+        for index in range(7):
+            with self.subTest(boundary="product_write", index=index):
+                result, calls = exercise("product_write", index)
+                self.assertEqual(
+                    result["status"], "SUPERVISED_MANUAL_REQUIRED"
+                )
+                self.assertNotIn("prefix_after", result)
+                self.assertIsNone(result["next_stage"])
+                self.assertEqual(
+                    result["callbacks"], 3 + 2 * (index + 1), calls
+                )
+                self.assertEqual(
+                    len([call for call in calls if call.startswith("forward:")]),
+                    index + 1,
+                )
+                self.assertEqual(
+                    len([call for call in calls if call.startswith("reverse:")]),
+                    index + 1,
+                )
+
+        result, calls = exercise("forward_reload", 0)
+        self.assertEqual(result["callbacks"], 18)
+        self.assertNotIn("prefix_after", result)
+        self.assertEqual(
+            len([call for call in calls if call.startswith("forward:")]), 7
+        )
+        self.assertEqual(
+            len([call for call in calls if call.startswith("reverse:")]), 7
+        )
+
+        for index in range(7):
+            with self.subTest(boundary="reverse_write", index=index):
+                result, calls = exercise("reverse_write", index)
+                self.assertEqual(
+                    result["status"], "SUPERVISED_MANUAL_REQUIRED"
+                )
+                self.assertNotIn("prefix_after", result)
+                self.assertEqual(result["callbacks"], 11 + index)
+                self.assertEqual(
+                    len([call for call in calls if call.startswith("reverse:")]),
+                    index + 1,
+                )
+
+        result, calls = exercise("reverse_reload", 0)
+        self.assertEqual(result["callbacks"], 18)
+        self.assertNotIn("prefix_after", result)
+        self.assertEqual(
+            len([call for call in calls if call.startswith("reload:")]), 2
+        )
+
+    def test_attempt6_checkpoint_stage_reaches_independent_target_once(self) -> None:
+        plan, selected = self.attempt6_checkpoint_plan()
+        live = copy.deepcopy(plan["observation"])
+        calls: list[str] = []
+        original_file_observation = module._file_observation
+
+        def file_observation(path: Path) -> dict[str, object]:
+            if path.as_posix() in live["files"]:
+                return {
+                    key: value
+                    for key, value in live["files"][path.as_posix()].items()
+                    if key != "state"
+                }
+            return original_file_observation(path)
+
+        def install(path: str, row: dict[str, object]) -> None:
+            calls.append("install:" + path)
+            live["files"][path] = {
+                "gid": row["gid"],
+                "identity": sha256(("target:" + path).encode()).hexdigest(),
+                "kind": "regular",
+                "mode": row["mode"],
+                "payload_b64": row["payload_b64"],
+                "sha256": row["payload_sha256"],
+                "state": "TARGET",
+                "uid": row["uid"],
+            }
+
+        def service(unit: str) -> dict[str, object]:
+            self.assertEqual(unit, module.CORE_SERVICE)
+            return copy.deepcopy(live["services"]["core"])
+
+        def stop(unit: str) -> None:
+            calls.append("stop:" + unit)
+            live["services"]["core"]["active"] = False
+
+        def fresh(_authority: dict[str, object]) -> dict[str, object]:
+            return product.build_fixed_plan(selected, copy.deepcopy(live))
+
+        with tempfile.TemporaryDirectory() as temporary:
+            component = Path(temporary)
+            releases = component / "releases"
+            releases.mkdir()
+            checkpoint_root = component / "attempt6-third-state-checkpoints-v1"
+            with mock.patch.object(
+                module, "CONTROLLER_RELEASES_ROOT", releases
+            ), mock.patch.object(
+                module, "ATTEMPT6_CHECKPOINTS_ROOT", checkpoint_root
+            ), mock.patch.object(
+                module, "_effective_units_state", return_value="TARGET"
+            ), mock.patch.object(
+                module, "_private_root_handle_count", return_value=0
+            ), mock.patch.object(
+                module, "_file_observation", side_effect=file_observation
+            ), mock.patch.object(
+                module, "_install_target_file", side_effect=install
+            ), mock.patch.object(
+                module, "_service_observation", side_effect=service
+            ), mock.patch.object(
+                module, "_stop_service", side_effect=stop
+            ), mock.patch.object(
+                module, "_daemon_reload_and_verify", side_effect=lambda: calls.append("reload")
+            ), mock.patch.object(
+                module, "_fresh_checkpoint_plan", side_effect=fresh
+            ):
+                self.assertEqual(
+                    module._checkpoint_prefix(plan),
+                    "CHECKPOINTED_THIRD_STATE_TO_TARGET_REQUIRED",
+                )
+                result = module.run_checkpointed_stage(
+                    plan,
+                    requested_stage="CHECKPOINTED_THIRD_STATE_TO_TARGET",
+                    supervised_start=False,
+                )
+                self.assertEqual(result["status"], "STAGE_TARGET")
+                self.assertEqual(
+                    result["prefix_after"], "CHECKPOINTED_THIRD_STATE_TARGET"
+                )
+                self.assertEqual(result["callbacks"], 4)
+                self.assertEqual(
+                    calls,
+                    [
+                        "stop:" + module.CORE_SERVICE,
+                        "install:" + sorted(product.FILE_ROLES)[0],
+                        "reload",
+                    ],
+                )
+                target_plan = fresh(selected)
+                self.assertEqual(
+                    module._checkpoint_prefix(target_plan),
+                    "CHECKPOINTED_THIRD_STATE_TARGET",
+                )
+                with self.assertRaisesRegex(
+                    module.MemoryActivationRejected,
+                    "fixed_checkpoint_stage_request_rejected",
+                ):
+                    module.run_checkpointed_stage(
+                        target_plan,
+                        requested_stage="CHECKPOINTED_THIRD_STATE_TO_TARGET",
+                        supervised_start=False,
+                    )
+
+    def test_attempt6_checkpoint_stage_failure_restores_checkpoint_bytes(self) -> None:
+        plan, selected = self.attempt6_checkpoint_plan()
+        live = copy.deepcopy(plan["observation"])
+        original_file_observation = module._file_observation
+        failed = [False]
+
+        def file_observation(path: Path) -> dict[str, object]:
+            if path.as_posix() in live["files"]:
+                return {
+                    key: value
+                    for key, value in live["files"][path.as_posix()].items()
+                    if key != "state"
+                }
+            return original_file_observation(path)
+
+        def install(path: str, row: dict[str, object]) -> None:
+            live["files"][path] = {
+                "gid": row["gid"],
+                "identity": sha256(("target:" + path).encode()).hexdigest(),
+                "kind": "regular",
+                "mode": row["mode"],
+                "payload_b64": row["payload_b64"],
+                "sha256": row["payload_sha256"],
+                "state": "TARGET",
+                "uid": row["uid"],
+            }
+            if not failed[0]:
+                failed[0] = True
+                raise module.MemoryActivationRejected("injected_lost_return")
+
+        def atomic(path: Path, payload: bytes, mode: int, uid: int, gid: int) -> None:
+            live["files"][path.as_posix()] = {
+                "gid": gid,
+                "identity": sha256(("restored:" + path.as_posix()).encode()).hexdigest(),
+                "kind": "regular",
+                "mode": f"0{mode:03o}",
+                "payload_b64": base64.b64encode(payload).decode("ascii"),
+                "sha256": sha256(payload).hexdigest(),
+                "state": "THIRD_STATE",
+                "uid": uid,
+            }
+
+        def service(unit: str) -> dict[str, object]:
+            self.assertEqual(unit, module.CORE_SERVICE)
+            return copy.deepcopy(live["services"]["core"])
+
+        def stop(_unit: str) -> None:
+            live["services"]["core"]["active"] = False
+
+        def fresh(_authority: dict[str, object]) -> dict[str, object]:
+            return product.build_fixed_plan(selected, copy.deepcopy(live))
+
+        with tempfile.TemporaryDirectory() as temporary:
+            component = Path(temporary)
+            releases = component / "releases"
+            releases.mkdir()
+            checkpoint_root = component / "attempt6-third-state-checkpoints-v1"
+            with mock.patch.object(
+                module, "CONTROLLER_RELEASES_ROOT", releases
+            ), mock.patch.object(
+                module, "ATTEMPT6_CHECKPOINTS_ROOT", checkpoint_root
+            ), mock.patch.object(
+                module, "_effective_units_state", return_value="TARGET"
+            ), mock.patch.object(
+                module, "_private_root_handle_count", return_value=0
+            ), mock.patch.object(
+                module, "_file_observation", side_effect=file_observation
+            ), mock.patch.object(
+                module, "_install_target_file", side_effect=install
+            ), mock.patch.object(
+                module, "_atomic_file", side_effect=atomic
+            ), mock.patch.object(
+                module, "_service_observation", side_effect=service
+            ), mock.patch.object(
+                module, "_stop_service", side_effect=stop
+            ), mock.patch.object(
+                module, "_daemon_reload_and_verify"
+            ), mock.patch.object(
+                module, "_fresh_checkpoint_plan", side_effect=fresh
+            ):
+                result = module.run_checkpointed_stage(
+                    plan,
+                    requested_stage="CHECKPOINTED_THIRD_STATE_TO_TARGET",
+                    supervised_start=False,
+                )
+                self.assertEqual(result["status"], "SUPERVISED_MANUAL_REQUIRED")
+                self.assertNotIn("prefix_after", result)
+                self.assertIsNone(result["next_stage"])
+                self.assertEqual(
+                    result["local_reverse"], "FAILED_OR_UNESTABLISHED"
+                )
+                self.assertEqual(
+                    live["files"][sorted(product.FILE_ROLES)[0]]["sha256"],
+                    plan["observation"]["files"][sorted(product.FILE_ROLES)[0]][
+                        "sha256"
+                    ],
+                )
 
 
 if __name__ == "__main__":

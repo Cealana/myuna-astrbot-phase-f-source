@@ -38,6 +38,9 @@ RUNTIME_SERVICE = "myuna-telegram-owner-runtime-dev.service"
 RUNTIME_SOCKET = "myuna-telegram-owner-runtime-dev.socket"
 UNIT_PATH = Path("/etc/systemd/system/myuna-telegram-owner-r5-resume.service")
 CONTROLLER_RELEASES_ROOT = Path("/opt/myuna/telegram-r5/releases")
+ATTEMPT6_CHECKPOINTS_ROOT = (
+    CONTROLLER_RELEASES_ROOT.parent / "attempt6-third-state-checkpoints-v1"
+)
 DEPLOY_REPOSITORY = Path("/srv/myuna/repos/deploy")
 PARENT_MANIFEST_PATH = Path("/etc/myuna-telegram-gateway/p07-d-release-set-v1.json")
 PARENT_SELECTOR_PATH = Path("/etc/myuna-telegram-gateway/external-epoch-selector-v2.json")
@@ -233,22 +236,46 @@ def _file_observation(path: Path) -> dict[str, object]:
     require(before_identity == after_identity, "fixed_file_observation_rejected")
     named = path.lstat()
     require(
-        (named.st_dev, named.st_ino, named.st_mode, named.st_nlink, named.st_size)
-        == (after.st_dev, after.st_ino, after.st_mode, after.st_nlink, after.st_size),
+        (
+            named.st_dev,
+            named.st_ino,
+            named.st_mode,
+            named.st_nlink,
+            named.st_size,
+            named.st_ctime_ns,
+            named.st_mtime_ns,
+            named.st_uid,
+            named.st_gid,
+        )
+        == (
+            after.st_dev,
+            after.st_ino,
+            after.st_mode,
+            after.st_nlink,
+            after.st_size,
+            after.st_ctime_ns,
+            after.st_mtime_ns,
+            after.st_uid,
+            after.st_gid,
+        ),
         "fixed_file_observation_rejected",
     )
-    identity = sha256(
-        canonical(
-            {
-                "dev": after.st_dev,
-                "gid": after.st_gid,
-                "ino": after.st_ino,
-                "mode": stat.S_IMODE(after.st_mode),
-                "size": after.st_size,
-                "uid": after.st_uid,
-            }
-        )
-    ).hexdigest()
+    identity = product.digest(
+        "phase_f_file_continuity_v1",
+        {
+            "ctime_ns": after.st_ctime_ns,
+            "dev": after.st_dev,
+            "gid": after.st_gid,
+            "ino": after.st_ino,
+            "kind": "regular",
+            "mode": stat.S_IMODE(after.st_mode),
+            "mtime_ns": after.st_mtime_ns,
+            "nlink": after.st_nlink,
+            "schema": product.ATTEMPT6_CHECKPOINT_FILE_IDENTITY_SCHEMA,
+            "size": after.st_size,
+            "uid": after.st_uid,
+        },
+    )
     return {
         "gid": after.st_gid,
         "identity": identity,
@@ -2388,6 +2415,816 @@ def _attempt5_failed_target_recovery_projection(
     return projection
 
 
+def _attempt6_checkpoint_manifest(
+    plan_value: object,
+) -> dict[str, object]:
+    """Build rollback evidence; it is deliberately not product authority."""
+
+    plan = product.validate_fixed_plan(plan_value)
+    contract = plan["checkpoint_contract"]
+    authority = plan["authority"]
+    observation = plan["observation"]
+    assert isinstance(contract, Mapping)
+    assert isinstance(authority, Mapping)
+    assert isinstance(observation, Mapping)
+    files = observation["files"]
+    target_files = authority["files"]
+    releases = observation["releases"]
+    assert isinstance(files, Mapping)
+    assert isinstance(target_files, Mapping)
+    assert isinstance(releases, Mapping)
+    states = tuple(files[path]["state"] for path in sorted(product.FILE_ROLES))
+    require(
+        len(states) == 7
+        and "THIRD_STATE" in states
+        and set(states).issubset({"TARGET", "THIRD_STATE"}),
+        "fixed_attempt6_checkpoint_prestate_rejected",
+    )
+    members: list[dict[str, object]] = []
+    for contract_row in contract["file_roles"]:
+        assert isinstance(contract_row, Mapping)
+        path = str(contract_row["path_category"])
+        row = files[path]
+        target = target_files[path]
+        assert isinstance(row, Mapping)
+        assert isinstance(target, Mapping)
+        try:
+            payload = base64.b64decode(str(row["payload_b64"]), validate=True)
+        except (ValueError, TypeError) as exc:
+            raise MemoryActivationRejected(
+                "fixed_attempt6_checkpoint_prestate_rejected"
+            ) from exc
+        require(
+            row["kind"] == "regular"
+            and row["mode"] == target["mode"] == contract_row["mode"]
+            and row["uid"] == target["uid"]
+            and row["gid"] == target["gid"]
+            and row["sha256"] == sha256(payload).hexdigest()
+            and type(row["identity"]) is str
+            and bool(row["identity"]),
+            "fixed_attempt6_checkpoint_prestate_rejected",
+        )
+        members.append(
+            {
+                "gid": row["gid"],
+                "index": contract_row["index"],
+                "member": contract_row["member"],
+                "mode": row["mode"],
+                "nlink": 1,
+                "path_category": path,
+                "prestate_identity_schema": (
+                    product.ATTEMPT6_CHECKPOINT_FILE_IDENTITY_SCHEMA
+                ),
+                "prestate_identity_sha256": row["identity"],
+                "role": contract_row["role"],
+                "sha256": row["sha256"],
+                "size": len(payload),
+                "uid": row["uid"],
+            }
+        )
+    current_release_bindings = {
+        key: releases[key]["identity"]
+        for key in ("core", "plugin", "runtime", "image")
+    }
+    current_binding_requirements = contract["current_binding_requirements"]
+    archive_root = observation["archive_root"]
+    assert isinstance(current_binding_requirements, Mapping)
+    assert isinstance(archive_root, Mapping)
+    require(
+        current_release_bindings
+        == current_binding_requirements["release_member_sets"]
+        and _effective_units_state()
+        == current_binding_requirements["effective_units_state"]
+        and archive_root["selected_state"]
+        == current_binding_requirements["selected_root_state"]
+        and archive_root["selected_identity"]
+        == current_binding_requirements["selected_root_identity"],
+        "fixed_attempt6_checkpoint_current_binding_rejected",
+    )
+    current_bindings = {
+        **current_binding_requirements,
+        "source_prestate_sha256": product.digest(
+            "phase_f_attempt6_checkpoint_source_prestate_v1",
+            {
+                "current_binding_requirements": current_binding_requirements,
+                "members": [
+                    {
+                        key: member[key]
+                        for key in (
+                            "gid",
+                            "index",
+                            "mode",
+                            "nlink",
+                            "path_category",
+                            "prestate_identity_schema",
+                            "prestate_identity_sha256",
+                            "role",
+                            "sha256",
+                            "size",
+                            "uid",
+                        )
+                    }
+                    for member in members
+                ],
+            },
+        ),
+    }
+    body: dict[str, object] = {
+        "attempt_fence": contract["attempt_fence"],
+        "capability": product.ATTEMPT6_CHECKPOINT_CAPABILITY,
+        "checkpoint_contract_sha256": contract["contract_sha256"],
+        "current_bindings": current_bindings,
+        "member_order": contract["member_order"],
+        "members": members,
+        "retirement_conditions": list(product.ATTEMPT6_CHECKPOINT_RETIREMENT),
+        "rollback_only": True,
+        "runtime_fallback": False,
+        "schema": product.ATTEMPT6_CHECKPOINT_SCHEMA,
+        "target_bindings": contract["target_bindings"],
+        "target_truth_from_checkpoint": False,
+        "version": product.ATTEMPT6_CHECKPOINT_VERSION,
+    }
+    return {
+        **body,
+        "checkpoint_sha256": product.digest(
+            "phase_f_attempt6_third_state_checkpoint_v1", body
+        ),
+    }
+
+
+def _checkpoint_directory_metadata(path: Path) -> os.stat_result:
+    try:
+        metadata = path.lstat()
+        descriptor = os.open(
+            path,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+        )
+        try:
+            opened = os.fstat(descriptor)
+        finally:
+            os.close(descriptor)
+    except OSError as exc:
+        raise MemoryActivationRejected("fixed_attempt6_checkpoint_path_rejected") from exc
+    require(
+        not stat.S_ISLNK(metadata.st_mode)
+        and stat.S_ISDIR(metadata.st_mode)
+        and metadata.st_dev == opened.st_dev
+        and metadata.st_ino == opened.st_ino
+        and metadata.st_uid == opened.st_uid
+        and metadata.st_gid == opened.st_gid
+        and stat.S_IMODE(metadata.st_mode) == stat.S_IMODE(opened.st_mode),
+        "fixed_attempt6_checkpoint_path_rejected",
+    )
+    return metadata
+
+
+def _attempt6_checkpoint_reopen(
+    artifact: Path,
+    authority: Mapping[str, object],
+) -> dict[str, object]:
+    validated_authority = product.validate_source_authority(authority)
+    expected_contract = product.attempt6_checkpoint_contract(validated_authority)
+    artifact_metadata = _checkpoint_directory_metadata(artifact)
+    root_metadata = _checkpoint_directory_metadata(artifact.parent)
+    require(
+        re.fullmatch(r"[0-9a-f]{64}", artifact.name) is not None
+        and artifact_metadata.st_dev == root_metadata.st_dev
+        and artifact_metadata.st_uid == root_metadata.st_uid
+        and artifact_metadata.st_gid == root_metadata.st_gid
+        and stat.S_IMODE(artifact_metadata.st_mode) == 0o700,
+        "fixed_attempt6_checkpoint_reopen_rejected",
+    )
+    manifest_observation = _file_observation(artifact / "MANIFEST.json")
+    require(
+        manifest_observation["kind"] == "regular"
+        and manifest_observation["mode"] == "0400"
+        and manifest_observation["uid"] == artifact_metadata.st_uid
+        and manifest_observation["gid"] == artifact_metadata.st_gid,
+        "fixed_attempt6_checkpoint_reopen_rejected",
+    )
+    try:
+        manifest_payload = base64.b64decode(
+            str(manifest_observation["payload_b64"]), validate=True
+        )
+        manifest = json.loads(manifest_payload.decode("ascii"))
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise MemoryActivationRejected(
+            "fixed_attempt6_checkpoint_reopen_rejected"
+        ) from exc
+    require(
+        type(manifest) is dict
+        and canonical(manifest) == manifest_payload
+        and set(manifest)
+        == {
+            "attempt_fence",
+            "capability",
+            "checkpoint_contract_sha256",
+            "checkpoint_sha256",
+            "current_bindings",
+            "member_order",
+            "members",
+            "retirement_conditions",
+            "rollback_only",
+            "runtime_fallback",
+            "schema",
+            "target_bindings",
+            "target_truth_from_checkpoint",
+            "version",
+        }
+        and manifest["schema"] == product.ATTEMPT6_CHECKPOINT_SCHEMA
+        and manifest["capability"] == product.ATTEMPT6_CHECKPOINT_CAPABILITY
+        and manifest["version"] == product.ATTEMPT6_CHECKPOINT_VERSION
+        and manifest["checkpoint_contract_sha256"]
+        == expected_contract["contract_sha256"]
+        and manifest["rollback_only"] is True
+        and manifest["runtime_fallback"] is False
+        and manifest["target_truth_from_checkpoint"] is False
+        and manifest["retirement_conditions"]
+        == list(product.ATTEMPT6_CHECKPOINT_RETIREMENT),
+        "fixed_attempt6_checkpoint_reopen_rejected",
+    )
+    expected_attempt_fence = {
+        "attempt5_authority_sha256": product.ATTEMPT5_PRODUCT_AUTHORITY_SHA256,
+        "attempt5_immutable": True,
+        "attempt6_created": False,
+        "attempt6_creation_ordinal": 1,
+        "attempt6_predecessor": 5,
+        "attempt7_allowed": False,
+        "one_shot": True,
+    }
+    require(
+        type(manifest["current_bindings"]) is dict,
+        "fixed_attempt6_checkpoint_reopen_rejected",
+    )
+    require(
+        manifest["attempt_fence"] == expected_attempt_fence
+        and manifest["current_bindings"]
+        == {
+            **expected_contract["current_binding_requirements"],
+            "source_prestate_sha256": manifest["current_bindings"].get(
+                "source_prestate_sha256"
+            ),
+        }
+        and type(manifest["current_bindings"].get("source_prestate_sha256"))
+        is str
+        and re.fullmatch(
+            r"[0-9a-f]{64}",
+            manifest["current_bindings"]["source_prestate_sha256"],
+        )
+        is not None
+        and type(manifest["members"]) is list
+        and len(manifest["members"]) == len(product.FILE_ROLES) == 7,
+        "fixed_attempt6_checkpoint_reopen_rejected",
+    )
+    member_set: list[dict[str, object]] = []
+    expected_entries = {"MANIFEST.json"}
+    for index, (path, member) in enumerate(
+        zip(sorted(product.FILE_ROLES), manifest["members"])
+    ):
+        require(
+            type(member) is dict
+            and set(member)
+            == {
+                "gid",
+                "index",
+                "member",
+                "mode",
+                "nlink",
+                "path_category",
+                "prestate_identity_schema",
+                "prestate_identity_sha256",
+                "role",
+                "sha256",
+                "size",
+                "uid",
+            }
+            and member["index"] == index
+            and member["member"] == f"rollback-{index:02d}.bin"
+            and member["path_category"] == path
+            and member["prestate_identity_schema"]
+            == product.ATTEMPT6_CHECKPOINT_FILE_IDENTITY_SCHEMA
+            and type(member["prestate_identity_sha256"]) is str
+            and re.fullmatch(
+                r"[0-9a-f]{64}", str(member["prestate_identity_sha256"])
+            )
+            is not None
+            and member["role"] == product.FILE_ROLES[path][0]
+            and member["mode"] == product.FILE_ROLES[path][1]
+            and member["nlink"] == 1
+            and type(member["uid"]) is int
+            and int(member["uid"]) >= 0
+            and type(member["gid"]) is int
+            and int(member["gid"]) >= 0
+            and type(member["size"]) is int
+            and 0 <= int(member["size"]) <= 1024 * 1024
+            and type(member["sha256"]) is str
+            and re.fullmatch(r"[0-9a-f]{64}", str(member["sha256"])) is not None,
+            "fixed_attempt6_checkpoint_reopen_rejected",
+        )
+        selected = artifact / str(member["member"])
+        observed = _file_observation(selected)
+        require(
+            observed["kind"] == "regular"
+            and observed["mode"] == "0400"
+            and observed["uid"] == artifact_metadata.st_uid
+            and observed["gid"] == artifact_metadata.st_gid
+            and observed["sha256"] == member["sha256"]
+            and len(base64.b64decode(str(observed["payload_b64"]), validate=True))
+            == member["size"],
+            "fixed_attempt6_checkpoint_reopen_rejected",
+        )
+        expected_entries.add(str(member["member"]))
+        member_set.append(
+            {
+                "member": member["member"],
+                "sha256": member["sha256"],
+                "size": member["size"],
+            }
+        )
+    try:
+        actual_entries = {entry.name for entry in os.scandir(artifact)}
+    except OSError as exc:
+        raise MemoryActivationRejected(
+            "fixed_attempt6_checkpoint_reopen_rejected"
+        ) from exc
+    require(
+        actual_entries == expected_entries
+        and manifest["member_order"]
+        == [f"rollback-{index:02d}.bin" for index in range(7)],
+        "fixed_attempt6_checkpoint_reopen_rejected",
+    )
+    current_binding_requirements = expected_contract[
+        "current_binding_requirements"
+    ]
+    expected_source_prestate_sha256 = product.digest(
+        "phase_f_attempt6_checkpoint_source_prestate_v1",
+        {
+            "current_binding_requirements": current_binding_requirements,
+            "members": [
+                {
+                    key: member[key]
+                    for key in (
+                        "gid",
+                        "index",
+                        "mode",
+                        "nlink",
+                        "path_category",
+                        "prestate_identity_schema",
+                        "prestate_identity_sha256",
+                        "role",
+                        "sha256",
+                        "size",
+                        "uid",
+                    )
+                }
+                for member in manifest["members"]
+            ],
+        },
+    )
+    require(
+        manifest["current_bindings"]["source_prestate_sha256"]
+        == expected_source_prestate_sha256,
+        "fixed_attempt6_checkpoint_reopen_rejected",
+    )
+    body = {key: value for key, value in manifest.items() if key != "checkpoint_sha256"}
+    require(
+        manifest["checkpoint_sha256"]
+        == product.digest("phase_f_attempt6_third_state_checkpoint_v1", body)
+        == artifact.name,
+        "fixed_attempt6_checkpoint_reopen_rejected",
+    )
+    return {
+        "checkpoint_sha256": manifest["checkpoint_sha256"],
+        "manifest": manifest,
+        "member_count": len(member_set),
+        "member_set_sha256": product.digest(
+            "phase_f_attempt6_checkpoint_members_v1", member_set
+        ),
+        "state": "SEALED_CHECKPOINT",
+    }
+
+
+def _fresh_process_attempt6_checkpoint_reopen(
+    artifact: Path,
+    authority: Mapping[str, object],
+) -> dict[str, object]:
+    code = (
+        "import json,sys;from pathlib import Path;"
+        "sys.path.insert(0,sys.argv[1]);"
+        "import activate_p07_owner_private_memory_v1 as m;"
+        "a=json.loads(sys.stdin.buffer.read());"
+        "r=m._attempt6_checkpoint_reopen(Path(sys.argv[2]),a);"
+        "print(json.dumps({k:r[k] for k in "
+        "('checkpoint_sha256','member_count','member_set_sha256','state')},"
+        "separators=(',',':'),sort_keys=True))"
+    )
+    environment = dict(os.environ)
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    try:
+        completed = subprocess.run(
+            (
+                sys.executable,
+                "-B",
+                "-c",
+                code,
+                Path(__file__).resolve().parent.as_posix(),
+                artifact.as_posix(),
+            ),
+            check=False,
+            capture_output=True,
+            env=environment,
+            input=canonical(authority),
+            timeout=120,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise MemoryActivationRejected(
+            "fixed_attempt6_checkpoint_fresh_reopen_rejected"
+        ) from exc
+    try:
+        receipt = json.loads(completed.stdout.decode("ascii"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise MemoryActivationRejected(
+            "fixed_attempt6_checkpoint_fresh_reopen_rejected"
+        ) from exc
+    require(
+        completed.returncode == 0
+        and type(receipt) is dict
+        and set(receipt)
+        == {"checkpoint_sha256", "member_count", "member_set_sha256", "state"}
+        and receipt["state"] == "SEALED_CHECKPOINT"
+        and receipt["member_count"] == 7,
+        "fixed_attempt6_checkpoint_fresh_reopen_rejected",
+    )
+    return receipt
+
+
+def _attempt6_checkpoint_artifact(
+    plan: Mapping[str, object],
+) -> dict[str, object]:
+    try:
+        metadata = ATTEMPT6_CHECKPOINTS_ROOT.lstat()
+    except FileNotFoundError:
+        return {"state": "ABSENT"}
+    except OSError as exc:
+        raise MemoryActivationRejected("fixed_attempt6_checkpoint_path_rejected") from exc
+    require(
+        not stat.S_ISLNK(metadata.st_mode)
+        and stat.S_ISDIR(metadata.st_mode)
+        and stat.S_IMODE(metadata.st_mode) == 0o700,
+        "fixed_attempt6_checkpoint_path_rejected",
+    )
+    checkpoint_root = _checkpoint_directory_metadata(ATTEMPT6_CHECKPOINTS_ROOT)
+    release_root = _checkpoint_directory_metadata(CONTROLLER_RELEASES_ROOT)
+    require(
+        checkpoint_root.st_dev == release_root.st_dev
+        and checkpoint_root.st_uid == release_root.st_uid
+        and checkpoint_root.st_gid == release_root.st_gid,
+        "fixed_attempt6_checkpoint_path_rejected",
+    )
+    try:
+        entries = tuple(os.scandir(ATTEMPT6_CHECKPOINTS_ROOT))
+    except OSError as exc:
+        raise MemoryActivationRejected("fixed_attempt6_checkpoint_path_rejected") from exc
+    require(entries, "fixed_attempt6_checkpoint_collision_rejected")
+    require(
+        len(entries) == 1
+        and not entries[0].is_symlink()
+        and entries[0].is_dir(follow_symlinks=False)
+        and re.fullmatch(r"[0-9a-f]{64}", entries[0].name) is not None,
+        "fixed_attempt6_checkpoint_collision_rejected",
+    )
+    reopened = _attempt6_checkpoint_reopen(
+        Path(entries[0].path), plan["authority"]
+    )
+    manifest = reopened["manifest"]
+    assert isinstance(manifest, Mapping)
+    contract = plan["checkpoint_contract"]
+    assert isinstance(contract, Mapping)
+    require(
+        canonical(manifest["target_bindings"])
+        == canonical(contract["target_bindings"])
+        and canonical(manifest["attempt_fence"])
+        == canonical(contract["attempt_fence"]),
+        "fixed_attempt6_checkpoint_binding_rejected",
+    )
+    return reopened
+
+
+def _attempt6_checkpoint_matches_current(
+    plan: Mapping[str, object],
+    manifest: Mapping[str, object],
+) -> bool:
+    try:
+        expected_manifest = _attempt6_checkpoint_manifest(plan)
+    except (MemoryActivationRejected, product.ProductionPlanRejected):
+        return False
+    observation = plan["observation"]
+    assert isinstance(observation, Mapping)
+    files = observation["files"]
+    releases = observation["releases"]
+    assert isinstance(files, Mapping)
+    assert isinstance(releases, Mapping)
+    for member in manifest["members"]:
+        assert isinstance(member, Mapping)
+        row = files[str(member["path_category"])]
+        if not isinstance(row, Mapping) or not (
+            row["kind"] == "regular"
+            and row["mode"] == member["mode"]
+            and row["uid"] == member["uid"]
+            and row["gid"] == member["gid"]
+            and row["identity"] == member["prestate_identity_sha256"]
+            and member["prestate_identity_schema"]
+            == product.ATTEMPT6_CHECKPOINT_FILE_IDENTITY_SCHEMA
+            and row["sha256"] == member["sha256"]
+            and len(base64.b64decode(str(row["payload_b64"]), validate=True))
+            == member["size"]
+        ):
+            return False
+    return (
+        canonical(manifest["members"]) == canonical(expected_manifest["members"])
+        and canonical(manifest["current_bindings"])
+        == canonical(expected_manifest["current_bindings"])
+        and manifest["current_bindings"]["release_member_sets"]
+        == {
+            key: releases[key]["identity"]
+            for key in ("core", "plugin", "runtime", "image")
+        }
+    )
+
+
+def _remove_attempt6_checkpoint_partial(
+    partial: Path,
+    expected_entries: set[str],
+) -> None:
+    try:
+        entries = tuple(os.scandir(partial))
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise MemoryActivationRejected(
+            "fixed_attempt6_checkpoint_partial_rejected"
+        ) from exc
+    require(
+        {entry.name for entry in entries}.issubset(expected_entries)
+        and all(
+            not entry.is_symlink() and entry.is_file(follow_symlinks=False)
+            for entry in entries
+        ),
+        "fixed_attempt6_checkpoint_partial_rejected",
+    )
+    try:
+        for entry in entries:
+            metadata = os.stat(entry.path, follow_symlinks=False)
+            require(
+                stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1,
+                "fixed_attempt6_checkpoint_partial_rejected",
+            )
+            os.unlink(entry.path)
+        os.rmdir(partial)
+        root = os.open(
+            ATTEMPT6_CHECKPOINTS_ROOT,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+        )
+        try:
+            os.fsync(root)
+        finally:
+            os.close(root)
+    except OSError as exc:
+        raise MemoryActivationRejected(
+            "fixed_attempt6_checkpoint_partial_rejected"
+        ) from exc
+
+
+def _publish_attempt6_checkpoint(
+    plan: Mapping[str, object],
+) -> dict[str, object]:
+    require(
+        _attempt6_checkpoint_artifact(plan)["state"] == "ABSENT",
+        "fixed_attempt6_checkpoint_collision_rejected",
+    )
+    manifest = _attempt6_checkpoint_manifest(plan)
+    observation = plan["observation"]
+    assert isinstance(observation, Mapping)
+    files = observation["files"]
+    assert isinstance(files, Mapping)
+    require(
+        all(_private_root_handle_count(Path(path)) == 0 for path in files),
+        "fixed_attempt6_checkpoint_open_handle_rejected",
+    )
+    release_root = _checkpoint_directory_metadata(CONTROLLER_RELEASES_ROOT)
+    component_root = _checkpoint_directory_metadata(CONTROLLER_RELEASES_ROOT.parent)
+    require(
+        ATTEMPT6_CHECKPOINTS_ROOT.parent == CONTROLLER_RELEASES_ROOT.parent
+        and release_root.st_dev == component_root.st_dev,
+        "fixed_attempt6_checkpoint_path_rejected",
+    )
+    root_created = False
+    try:
+        ATTEMPT6_CHECKPOINTS_ROOT.mkdir(mode=0o700)
+        root_created = True
+        os.chown(
+            ATTEMPT6_CHECKPOINTS_ROOT,
+            release_root.st_uid,
+            release_root.st_gid,
+        )
+        parent = os.open(
+            ATTEMPT6_CHECKPOINTS_ROOT.parent,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+        )
+        try:
+            os.fsync(parent)
+        finally:
+            os.close(parent)
+    except FileExistsError as exc:
+        raise MemoryActivationRejected(
+            "fixed_attempt6_checkpoint_collision_rejected"
+        ) from exc
+    except OSError as exc:
+        if root_created:
+            try:
+                os.rmdir(ATTEMPT6_CHECKPOINTS_ROOT)
+                parent = os.open(
+                    ATTEMPT6_CHECKPOINTS_ROOT.parent,
+                    os.O_RDONLY
+                    | os.O_DIRECTORY
+                    | os.O_CLOEXEC
+                    | os.O_NOFOLLOW,
+                )
+                try:
+                    os.fsync(parent)
+                finally:
+                    os.close(parent)
+            except OSError:
+                pass
+        raise MemoryActivationRejected(
+            "fixed_attempt6_checkpoint_path_rejected"
+        ) from exc
+    root_metadata = _checkpoint_directory_metadata(ATTEMPT6_CHECKPOINTS_ROOT)
+    require(
+        root_metadata.st_dev == release_root.st_dev
+        and root_metadata.st_uid == release_root.st_uid
+        and root_metadata.st_gid == release_root.st_gid
+        and stat.S_IMODE(root_metadata.st_mode) == 0o700,
+        "fixed_attempt6_checkpoint_path_rejected",
+    )
+    digest_value = str(manifest["checkpoint_sha256"])
+    final_path = ATTEMPT6_CHECKPOINTS_ROOT / digest_value
+    require(
+        not final_path.exists() and not final_path.is_symlink(),
+        "fixed_attempt6_checkpoint_collision_rejected",
+    )
+    partial = ATTEMPT6_CHECKPOINTS_ROOT / (
+        f".partial-{digest_value}-{os.getpid()}"
+    )
+    expected_entries = {
+        "MANIFEST.json",
+        *[str(member["member"]) for member in manifest["members"]],
+    }
+    renamed = False
+    try:
+        os.mkdir(partial, mode=0o700)
+        os.chown(partial, root_metadata.st_uid, root_metadata.st_gid)
+        for member in manifest["members"]:
+            assert isinstance(member, Mapping)
+            path = str(member["path_category"])
+            payload = base64.b64decode(
+                str(files[path]["payload_b64"]), validate=True
+            )
+            selected = partial / str(member["member"])
+            descriptor = os.open(
+                selected,
+                os.O_WRONLY
+                | os.O_CREAT
+                | os.O_EXCL
+                | os.O_CLOEXEC
+                | os.O_NOFOLLOW,
+                0o400,
+            )
+            try:
+                os.fchmod(descriptor, 0o400)
+                os.fchown(descriptor, root_metadata.st_uid, root_metadata.st_gid)
+                offset = 0
+                while offset < len(payload):
+                    written = os.write(descriptor, payload[offset:])
+                    require(written > 0, "fixed_attempt6_checkpoint_write_rejected")
+                    offset += written
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+        manifest_payload = canonical(manifest)
+        manifest_descriptor = os.open(
+            partial / "MANIFEST.json",
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | os.O_CLOEXEC
+            | os.O_NOFOLLOW,
+            0o400,
+        )
+        try:
+            os.fchmod(manifest_descriptor, 0o400)
+            os.fchown(
+                manifest_descriptor, root_metadata.st_uid, root_metadata.st_gid
+            )
+            offset = 0
+            while offset < len(manifest_payload):
+                written = os.write(manifest_descriptor, manifest_payload[offset:])
+                require(written > 0, "fixed_attempt6_checkpoint_write_rejected")
+                offset += written
+            os.fsync(manifest_descriptor)
+        finally:
+            os.close(manifest_descriptor)
+        partial_descriptor = os.open(
+            partial,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+        )
+        try:
+            os.fsync(partial_descriptor)
+        finally:
+            os.close(partial_descriptor)
+        root_descriptor = os.open(
+            ATTEMPT6_CHECKPOINTS_ROOT,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+        )
+        try:
+            _rename_noreplace(root_descriptor, partial.name, final_path.name)
+            renamed = True
+            os.fsync(root_descriptor)
+        finally:
+            os.close(root_descriptor)
+        local = _attempt6_checkpoint_reopen(
+            final_path, plan["authority"]
+        )
+        fresh = _fresh_process_attempt6_checkpoint_reopen(
+            final_path, plan["authority"]
+        )
+        require(
+            fresh["checkpoint_sha256"] == local["checkpoint_sha256"]
+            and fresh["member_set_sha256"] == local["member_set_sha256"],
+            "fixed_attempt6_checkpoint_fresh_reopen_rejected",
+        )
+        return local
+    except OSError as exc:
+        raise MemoryActivationRejected("fixed_attempt6_checkpoint_write_rejected") from exc
+    finally:
+        if not renamed:
+            _remove_attempt6_checkpoint_partial(partial, expected_entries)
+            if root_created:
+                try:
+                    os.rmdir(ATTEMPT6_CHECKPOINTS_ROOT)
+                    component_descriptor = os.open(
+                        ATTEMPT6_CHECKPOINTS_ROOT.parent,
+                        os.O_RDONLY
+                        | os.O_DIRECTORY
+                        | os.O_CLOEXEC
+                        | os.O_NOFOLLOW,
+                    )
+                    try:
+                        os.fsync(component_descriptor)
+                    finally:
+                        os.close(component_descriptor)
+                except OSError as exc:
+                    raise MemoryActivationRejected(
+                        "fixed_attempt6_checkpoint_partial_rejected"
+                    ) from exc
+
+
+def _restore_attempt6_checkpoint_files(
+    plan: Mapping[str, object],
+    manifest: Mapping[str, object],
+    changed: list[str],
+    callback_counter: list[int],
+) -> None:
+    authority = plan["authority"]
+    assert isinstance(authority, Mapping)
+    by_path = {
+        str(member["path_category"]): member for member in manifest["members"]
+    }
+    checkpoint_sha = str(manifest["checkpoint_sha256"])
+    artifact = ATTEMPT6_CHECKPOINTS_ROOT / checkpoint_sha
+    for path in reversed(changed):
+        member = by_path[path]
+        assert isinstance(member, Mapping)
+        current = _file_observation(Path(path))
+        target_sha = str(authority["files"][path]["payload_sha256"])
+        require(
+            current["sha256"] == target_sha,
+            "fixed_attempt6_checkpoint_reverse_drifted",
+        )
+        rollback = _file_observation(artifact / str(member["member"]))
+        callback_counter[0] += 1
+        _atomic_file(
+            Path(path),
+            base64.b64decode(str(rollback["payload_b64"]), validate=True),
+            int(str(member["mode"]), 8),
+            int(member["uid"]),
+            int(member["gid"]),
+        )
+    if changed:
+        callback_counter[0] += 1
+        _daemon_reload_and_verify()
+
+
 def _checkpoint_prefix(plan_value: object) -> str:
     plan = product.validate_fixed_plan(plan_value)
     replacement_attempt6 = plan["replacement_attempt6"]
@@ -2435,9 +3272,7 @@ def _checkpoint_prefix(plan_value: object) -> str:
         releases[key]["state"] for key in ("core", "plugin", "runtime", "image")
     )
     require(
-        "THIRD_STATE" not in file_states
-        and "THIRD_STATE" not in release_states
-        and all(state in {"OLD", "TARGET"} for state in file_states)
+        "THIRD_STATE" not in release_states
         and all(state in {"OLD", "TARGET"} for state in release_states),
         "fixed_checkpoint_third_state_rejected",
     )
@@ -2468,6 +3303,65 @@ def _checkpoint_prefix(plan_value: object) -> str:
         and not old["active"]
         and old["policy"] == "no"
     )
+    checkpoint = _attempt6_checkpoint_artifact(plan)
+    if "THIRD_STATE" in file_states:
+        require(
+            set(file_states).issubset({"TARGET", "THIRD_STATE"})
+            and len(file_states) == len(product.FILE_ROLES) == 7
+            and durability_roles
+            and not target["active"]
+            and archive["state"] == "OLD"
+            and archive["identity"] is None
+            and selected_state == "TARGET"
+            and all(state == "TARGET" for state in release_states)
+            and _effective_units_state() == "TARGET"
+            and not runtime_active
+            and not socket_active
+            and network_members == [],
+            "fixed_attempt6_checkpoint_prestate_rejected",
+        )
+        if checkpoint["state"] == "ABSENT":
+            require(
+                core_active,
+                "fixed_attempt6_checkpoint_prestate_rejected",
+            )
+            return "CHECKPOINTED_THIRD_STATE_TO_TARGET_REQUIRED"
+        require(
+            checkpoint["state"] == "SEALED_CHECKPOINT"
+            and isinstance(checkpoint["manifest"], Mapping)
+            and _attempt6_checkpoint_matches_current(
+                plan, checkpoint["manifest"]
+            ),
+            "fixed_attempt6_checkpoint_restore_rejected",
+        )
+        return "SEALED_CHECKPOINT" if core_active else "CHECKPOINT_RESTORED"
+    require(
+        all(state in {"OLD", "TARGET"} for state in file_states),
+        "fixed_checkpoint_third_state_rejected",
+    )
+    if checkpoint["state"] == "SEALED_CHECKPOINT":
+        authority_files = plan["authority"]["files"]
+        assert isinstance(authority_files, Mapping)
+        checkpoint_target = (
+            durability_roles
+            and not target["active"]
+            and archive["state"] == "OLD"
+            and archive["identity"] is None
+            and selected_state == "TARGET"
+            and all(state == "TARGET" for state in release_states)
+            and all(state == "TARGET" for state in file_states)
+            and all(
+                files[path]["sha256"]
+                == authority_files[path]["payload_sha256"]
+                for path in sorted(product.FILE_ROLES)
+            )
+            and _effective_units_state() == "TARGET"
+            and (runtime_active, socket_active, core_active)
+            == (False, False, False)
+            and network_members == []
+        )
+        if checkpoint_target:
+            return "CHECKPOINTED_THIRD_STATE_TARGET"
     if durability_roles:
         require(
             replacement_attempt6["attempt"] == 6
@@ -3024,6 +3918,7 @@ def run_checkpointed_stage(
             expected_after = "POST_WRITER_DURABILITY_TARGET_START_REQUIRED"
     callbacks = 0
     changed_files: list[str] = []
+    checkpoint_manifest: Mapping[str, object] | None = None
     writer_boundary = False
     try:
         if requested_stage in {
@@ -3090,6 +3985,73 @@ def run_checkpointed_stage(
             identity = str(before_observation["old_container"]["identity"])
             callbacks += 1
             _archive_old_container(identity, str(plan["archive_name"]))
+        elif requested_stage == "CHECKPOINTED_THIRD_STATE_TO_TARGET":
+            callbacks += 1
+            published = _publish_attempt6_checkpoint(plan)
+            checkpoint_manifest = published["manifest"]
+            assert isinstance(checkpoint_manifest, Mapping)
+            sealed = _attempt6_checkpoint_artifact(plan)
+            require(
+                sealed["state"] == "SEALED_CHECKPOINT"
+                and sealed["checkpoint_sha256"]
+                == checkpoint_manifest["checkpoint_sha256"],
+                "fixed_attempt6_checkpoint_fresh_reopen_rejected",
+            )
+            continuity_plan = _fresh_checkpoint_plan(authority)
+            continuity_checkpoint = _attempt6_checkpoint_artifact(continuity_plan)
+            require(
+                continuity_checkpoint["state"] == "SEALED_CHECKPOINT"
+                and isinstance(continuity_checkpoint["manifest"], Mapping)
+                and _attempt6_checkpoint_matches_current(
+                    continuity_plan, continuity_checkpoint["manifest"]
+                )
+                and _checkpoint_prefix(continuity_plan) == "SEALED_CHECKPOINT",
+                "fixed_attempt6_checkpoint_continuity_rejected",
+            )
+            continuity_observation = continuity_plan["observation"]
+            assert isinstance(continuity_observation, Mapping)
+            continuity_files = continuity_observation["files"]
+            assert isinstance(continuity_files, Mapping)
+            require(
+                all(
+                    _private_root_handle_count(Path(path)) == 0
+                    for path in continuity_files
+                ),
+                "fixed_attempt6_checkpoint_open_handle_rejected",
+            )
+            plan = continuity_plan
+            before_observation = continuity_observation
+            checkpoint_manifest = continuity_checkpoint["manifest"]
+            assert isinstance(checkpoint_manifest, Mapping)
+            captured_core = before_observation["services"]["core"]
+            require(
+                _service_observation(CORE_SERVICE) == captured_core
+                and captured_core["active"],
+                "fixed_attempt6_checkpoint_service_prestate_rejected",
+            )
+            callbacks += 1
+            _stop_service(CORE_SERVICE)
+            stopped_core = _service_observation(CORE_SERVICE)
+            require(
+                not stopped_core["active"]
+                and stopped_core["identity"] == captured_core["identity"],
+                "fixed_attempt6_checkpoint_service_poststate_rejected",
+            )
+            before_files = before_observation["files"]
+            assert isinstance(before_files, Mapping)
+            for path in sorted(product.FILE_ROLES):
+                if before_files[path]["state"] != "TARGET":
+                    changed_files.append(path)
+                    callbacks += 1
+                    _install_target_file(path, authority["files"][path])
+                    current = _file_observation(Path(path))
+                    require(
+                        current["sha256"]
+                        == authority["files"][path]["payload_sha256"],
+                        "fixed_attempt6_checkpoint_file_poststate_rejected",
+                    )
+            callbacks += 1
+            _daemon_reload_and_verify()
         elif requested_stage == "INSTALL_SEVEN_TARGET_FILES_AND_RELOAD":
             before_files = before_observation["files"]
             assert isinstance(before_files, Mapping)
@@ -3161,6 +4123,93 @@ def run_checkpointed_stage(
             callbacks += 1
             _start_target_once(plan, str(target["identity"]))
     except Exception as exc:
+        if requested_stage == "CHECKPOINTED_THIRD_STATE_TO_TARGET":
+            reverse_counter = [0]
+            try:
+                artifact = _attempt6_checkpoint_artifact(plan)
+                if artifact["state"] == "SEALED_CHECKPOINT":
+                    checkpoint_manifest = artifact["manifest"]
+                    assert isinstance(checkpoint_manifest, Mapping)
+                if changed_files:
+                    require(
+                        checkpoint_manifest is not None,
+                        "fixed_attempt6_checkpoint_reverse_rejected",
+                    )
+                    _restore_attempt6_checkpoint_files(
+                        plan,
+                        checkpoint_manifest,
+                        changed_files,
+                        reverse_counter,
+                    )
+                after_plan = _fresh_checkpoint_plan(authority)
+                prefix_after = _checkpoint_prefix(after_plan)
+                after_observation = after_plan["observation"]
+                assert isinstance(after_observation, Mapping)
+            except Exception:
+                callbacks += reverse_counter[0]
+                return _checkpoint_unestablished_result(
+                    plan,
+                    reason="attempt6_checkpoint_migration_manual_stop",
+                    stage=requested_stage,
+                    prefix_before=prefix_before,
+                    before_observation=before_observation,
+                    callbacks=callbacks,
+                    local_reverse="FAILED_OR_UNESTABLISHED",
+                    writer_boundary=False,
+                )
+            callbacks += reverse_counter[0]
+            if prefix_after == "CHECKPOINTED_THIRD_STATE_TARGET":
+                return _checkpoint_result(
+                    plan,
+                    status="STAGE_TARGET",
+                    reason="attempt6_checkpoint_migration_lost_return_target",
+                    stage=requested_stage,
+                    prefix_before=prefix_before,
+                    prefix_after=prefix_after,
+                    before_observation=before_observation,
+                    after_observation=after_observation,
+                    callbacks=callbacks,
+                    local_reverse="NOT_REQUIRED",
+                    writer_boundary=False,
+                )
+            if prefix_after in {
+                "CHECKPOINTED_THIRD_STATE_TO_TARGET_REQUIRED",
+                "SEALED_CHECKPOINT",
+                "CHECKPOINT_RESTORED",
+            }:
+                return _checkpoint_result(
+                    plan,
+                    status="SUPERVISED_MANUAL_REQUIRED",
+                    reason=getattr(
+                        exc, "code", "attempt6_checkpoint_migration_failed"
+                    ),
+                    stage=requested_stage,
+                    prefix_before=prefix_before,
+                    prefix_after=prefix_after,
+                    before_observation=before_observation,
+                    after_observation=after_observation,
+                    callbacks=callbacks,
+                    local_reverse=(
+                        "RESTORED_CHECKPOINT_BYTES"
+                        if reverse_counter[0]
+                        else "NO_EFFECT_OR_SEALED_CHECKPOINT"
+                    ),
+                    writer_boundary=False,
+                )
+            return _checkpoint_unestablished_result(
+                plan,
+                reason="attempt6_checkpoint_migration_ambiguous",
+                stage=requested_stage,
+                prefix_before=prefix_before,
+                before_observation=before_observation,
+                callbacks=callbacks,
+                local_reverse=(
+                    "FAILED_OR_UNESTABLISHED"
+                    if reverse_counter[0]
+                    else "NO_AUTOMATIC_REVERSE"
+                ),
+                writer_boundary=False,
+            )
         if requested_stage == "START_REPLACEMENT_ATTEMPT6_TARGET_ONCE":
             try:
                 after_plan = _fresh_checkpoint_plan(authority)

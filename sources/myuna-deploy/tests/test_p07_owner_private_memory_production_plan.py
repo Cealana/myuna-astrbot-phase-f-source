@@ -398,7 +398,7 @@ class ProductionPlanTests(unittest.TestCase):
     def test_unresolved_or_substituted_authority_rejects(self) -> None:
         self.assertEqual(
             module.ACCEPTED_DEPLOY_PARENT,
-            "ae634e82eba960cb4a3a8f9e3b848fb05331537f",
+            "59154e3e8e0107f48ed3ca14fd510884b03ca37a",
         )
         selected = authority(19001)
         for kind, parent in (
@@ -669,7 +669,7 @@ class ProductionPlanTests(unittest.TestCase):
     def test_attempt5_stopped_old_container_authority_is_frozen(self) -> None:
         self.assertEqual(
             module.ACCEPTED_DEPLOY_PARENT,
-            "ae634e82eba960cb4a3a8f9e3b848fb05331537f",
+            "59154e3e8e0107f48ed3ca14fd510884b03ca37a",
         )
         self.assertEqual(
             module.ATTEMPT5_OLD_CONTAINER_ID,
@@ -1035,6 +1035,151 @@ class ProductionPlanTests(unittest.TestCase):
                 "fixed_replacement_attempt6_authority_rejected",
             ):
                 module.validate_fixed_plan(mixed)
+
+    def test_attempt6_checkpoint_contract_is_source_owned_and_observation_free(self) -> None:
+        selected = authority(11)
+        first, old_hashes = observation(selected, file_state="THIRD_STATE")
+        second = module.json.loads(module.canonical(first))
+        path = sorted(module.FILE_ROLES)[0]
+        payload = b"different rollback bytes only\n"
+        second["files"][path]["payload_b64"] = base64.b64encode(payload).decode(
+            "ascii"
+        )
+        second["files"][path]["sha256"] = sha256(payload).hexdigest()
+        with mock.patch.dict(module.OLD_FILE_SHA256, old_hashes, clear=True):
+            first_plan = module.build_fixed_plan(selected, first)
+            second_plan = module.build_fixed_plan(selected, second)
+        self.assertEqual(
+            first_plan["checkpoint_contract"], second_plan["checkpoint_contract"]
+        )
+        contract = first_plan["checkpoint_contract"]
+        self.assertEqual(
+            contract["schema"],
+            "myuna.phase-f.attempt6-third-state-checkpoint.v1",
+        )
+        self.assertEqual(
+            contract["capability"], "checkpointed_third_state_to_target_v1"
+        )
+        self.assertEqual(contract["member_order"], [
+            f"rollback-{index:02d}.bin" for index in range(7)
+        ])
+        self.assertTrue(contract["rollback_only"])
+        self.assertFalse(contract["runtime_fallback"])
+        self.assertFalse(contract["target_truth_from_checkpoint"])
+        self.assertEqual(
+            contract["current_binding_requirements"]["schema"],
+            "myuna.phase-f.attempt6-checkpoint-current-bindings.v1",
+        )
+        self.assertEqual(
+            contract["current_binding_requirements"]["file_identity_schema"],
+            "myuna.phase-f.file-continuity.v1",
+        )
+        self.assertEqual(
+            contract["current_binding_requirements"]["effective_units_state"],
+            "TARGET",
+        )
+        self.assertEqual(
+            contract["current_binding_requirements"]["selected_root_identity"],
+            module.ATTEMPT5_PRIOR_ARCHIVE_CHILD_IDENTITY,
+        )
+        self.assertEqual(
+            contract["retirement_conditions"],
+            [
+                "replacement_attempt6_technical_success",
+                "owner_e2e_accepted",
+                "rollback_window_closed",
+            ],
+        )
+        self.assertFalse(contract["attempt_fence"]["attempt6_created"])
+        self.assertFalse(contract["attempt_fence"]["attempt7_allowed"])
+
+    def test_attempt6_checkpoint_contract_hostility_rejects(self) -> None:
+        selected = authority(29)
+        current, old_hashes = observation(selected, file_state="THIRD_STATE")
+        with mock.patch.dict(module.OLD_FILE_SHA256, old_hashes, clear=True):
+            plan = module.build_fixed_plan(selected, current)
+        mutations = (
+            ("schema", "substituted"),
+            ("capability", "substituted"),
+            ("version", 2),
+            ("rollback_only", False),
+            ("runtime_fallback", True),
+            ("target_truth_from_checkpoint", True),
+            ("contract_sha256", "0" * 64),
+        )
+        for field, value in mutations:
+            hostile = module.json.loads(module.canonical(plan))
+            hostile["checkpoint_contract"][field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(
+                module.ProductionPlanRejected,
+                "fixed_attempt6_checkpoint_contract_rejected",
+            ):
+                module.validate_fixed_plan(hostile)
+        hostile = module.json.loads(module.canonical(plan))
+        hostile["checkpoint_contract"]["file_roles"][0]["role"], hostile[
+            "checkpoint_contract"
+        ]["file_roles"][1]["role"] = (
+            hostile["checkpoint_contract"]["file_roles"][1]["role"],
+            hostile["checkpoint_contract"]["file_roles"][0]["role"],
+        )
+        with self.assertRaisesRegex(
+            module.ProductionPlanRejected,
+            "fixed_attempt6_checkpoint_contract_rejected",
+        ):
+            module.validate_fixed_plan(hostile)
+        missing = module.json.loads(module.canonical(plan))
+        missing["checkpoint_contract"]["file_roles"].pop()
+        with self.assertRaisesRegex(
+            module.ProductionPlanRejected,
+            "fixed_attempt6_checkpoint_contract_rejected",
+        ):
+            module.validate_fixed_plan(missing)
+        extra = module.json.loads(module.canonical(plan))
+        extra["checkpoint_contract"]["unexpected"] = True
+        with self.assertRaisesRegex(
+            module.ProductionPlanRejected,
+            "fixed_attempt6_checkpoint_contract_rejected",
+        ):
+            module.validate_fixed_plan(extra)
+        for field, value in (
+            ("schema", "substituted"),
+            ("config_sha256", "0" * 64),
+            ("effective_units_state", "OLD"),
+            ("selected_root_identity", "0" * 64),
+            ("unit_files_sha256", "0" * 64),
+        ):
+            hostile = module.json.loads(module.canonical(plan))
+            hostile["checkpoint_contract"]["current_binding_requirements"][
+                field
+            ] = value
+            with self.subTest(current_binding=field), self.assertRaisesRegex(
+                module.ProductionPlanRejected,
+                "fixed_attempt6_checkpoint_contract_rejected",
+            ):
+                module.validate_fixed_plan(hostile)
+
+    def test_attempt6_checkpoint_stage_is_one_exact_terminal_route(self) -> None:
+        self.assertEqual(
+            module.CHECKPOINT_NEXT_STAGE[
+                "CHECKPOINTED_THIRD_STATE_TO_TARGET_REQUIRED"
+            ],
+            "CHECKPOINTED_THIRD_STATE_TO_TARGET",
+        )
+        self.assertEqual(
+            module.CHECKPOINT_STAGE_TARGET[
+                "CHECKPOINTED_THIRD_STATE_TO_TARGET"
+            ],
+            "CHECKPOINTED_THIRD_STATE_TARGET",
+        )
+        for terminal in (
+            "SEALED_CHECKPOINT",
+            "CHECKPOINT_RESTORED",
+            "CHECKPOINTED_THIRD_STATE_TARGET",
+        ):
+            self.assertIsNone(module.CHECKPOINT_NEXT_STAGE[terminal])
+        self.assertEqual(
+            module.FIXED_STAGES.count("CHECKPOINTED_THIRD_STATE_TO_TARGET"), 1
+        )
 
 if __name__ == "__main__":
     unittest.main()

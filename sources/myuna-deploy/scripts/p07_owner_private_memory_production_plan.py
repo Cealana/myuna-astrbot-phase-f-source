@@ -20,7 +20,7 @@ SOURCE_SCHEMA = "myuna.phase-f.fixed-product-source-authority.v1"
 OBSERVATION_SCHEMA = "myuna.phase-f.fixed-product-observation.v1"
 PLAN_SCHEMA = "myuna.phase-f.fixed-product-plan.v1"
 RESULT_SCHEMA = "myuna.phase-f.fixed-product-result.v1"
-ACCEPTED_DEPLOY_PARENT = "ae634e82eba960cb4a3a8f9e3b848fb05331537f"
+ACCEPTED_DEPLOY_PARENT = "59154e3e8e0107f48ed3ca14fd510884b03ca37a"
 ACCEPTED_CORE_COMMIT = "4c13c0b20552b5d8a8720f180d0569405fed00b0"
 ACCEPTED_CORE_TREE = "e43ae07babf5a448525d1035d400a37fde374a2b"
 HYBRID_BUILDER_BLOB = "2c92a5f7d995fd08ed658d4cc905a6db6dd2ac65"
@@ -187,6 +187,22 @@ REPLACEMENT_ATTEMPT6_TARGET_TUPLE_SHA256 = (
 REPLACEMENT_ATTEMPT6_AUTHORITY_SHA256 = (
     "8b388479c4abb275173f935f97a205b57ee4968f3d2a9e0c542e9f4fd05998af"
 )
+ATTEMPT6_CHECKPOINT_SCHEMA = (
+    "myuna.phase-f.attempt6-third-state-checkpoint.v1"
+)
+ATTEMPT6_CHECKPOINT_CAPABILITY = "checkpointed_third_state_to_target_v1"
+ATTEMPT6_CHECKPOINT_VERSION = 1
+ATTEMPT6_CHECKPOINT_CURRENT_BINDINGS_SCHEMA = (
+    "myuna.phase-f.attempt6-checkpoint-current-bindings.v1"
+)
+ATTEMPT6_CHECKPOINT_FILE_IDENTITY_SCHEMA = (
+    "myuna.phase-f.file-continuity.v1"
+)
+ATTEMPT6_CHECKPOINT_RETIREMENT = (
+    "replacement_attempt6_technical_success",
+    "owner_e2e_accepted",
+    "rollback_window_closed",
+)
 ATTEMPT5_PRIOR_CONTROLLER_RELEASE = (
     "24064115ccdd0ca83c2dd94a49349bfbb7f706cbbdfd609cb00212aba0caf564"
 )
@@ -269,6 +285,7 @@ FIXED_STAGES = (
     "START_RUNTIME_SOCKET",
     "ARM_AND_START_TARGET_ONCE",
     "RECOVER_ATTEMPT5_FAILED_TARGET_TO_CORRECTED_STOPPED",
+    "CHECKPOINTED_THIRD_STATE_TO_TARGET",
     "START_REPLACEMENT_ATTEMPT6_TARGET_ONCE",
 )
 
@@ -334,6 +351,10 @@ CHECKPOINT_PREFIXES = tuple(
     "POST_WRITER_DURABILITY_SOCKET_REQUIRED",
     "POST_WRITER_DURABILITY_TARGET_START_REQUIRED",
     "POST_WRITER_DURABILITY_TARGET",
+    "CHECKPOINTED_THIRD_STATE_TO_TARGET_REQUIRED",
+    "SEALED_CHECKPOINT",
+    "CHECKPOINT_RESTORED",
+    "CHECKPOINTED_THIRD_STATE_TARGET",
 )
 
 CHECKPOINT_NEXT_STAGE = {
@@ -358,6 +379,10 @@ CHECKPOINT_NEXT_STAGE = {
     "POST_WRITER_DURABILITY_SOCKET_REQUIRED": "START_RUNTIME_SOCKET",
     "POST_WRITER_DURABILITY_TARGET_START_REQUIRED": "START_REPLACEMENT_ATTEMPT6_TARGET_ONCE",
     "POST_WRITER_DURABILITY_TARGET": None,
+    "CHECKPOINTED_THIRD_STATE_TO_TARGET_REQUIRED": "CHECKPOINTED_THIRD_STATE_TO_TARGET",
+    "SEALED_CHECKPOINT": None,
+    "CHECKPOINT_RESTORED": None,
+    "CHECKPOINTED_THIRD_STATE_TARGET": None,
 }
 CHECKPOINT_STAGE_TARGET = {
     "STAGE_CORE_RELEASE": "CORE_RELEASE_TARGET",
@@ -377,6 +402,7 @@ CHECKPOINT_STAGE_TARGET = {
     "START_RUNTIME_SOCKET": "READY_FOR_SUPERVISED_GATE",
     "ARM_AND_START_TARGET_ONCE": "POST_WRITER_MANUAL",
     "RECOVER_ATTEMPT5_FAILED_TARGET_TO_CORRECTED_STOPPED": "TARGET_CONTAINER_STOPPED",
+    "CHECKPOINTED_THIRD_STATE_TO_TARGET": "CHECKPOINTED_THIRD_STATE_TARGET",
     "START_REPLACEMENT_ATTEMPT6_TARGET_ONCE": "POST_WRITER_DURABILITY_TARGET",
 }
 
@@ -482,6 +508,118 @@ _REPLACEMENT_ATTEMPT6_AUTHORITY = {
     **_REPLACEMENT_ATTEMPT6_AUTHORITY_BODY,
     "authority_sha256": REPLACEMENT_ATTEMPT6_AUTHORITY_SHA256,
 }
+
+
+def attempt6_checkpoint_contract(
+    authority: Mapping[str, object],
+) -> dict[str, object]:
+    """Seal the rollback-only contract without using an observed file value."""
+
+    files = authority.get("files")
+    releases = authority.get("releases")
+    require(
+        authority.get("schema") == SOURCE_SCHEMA
+        and type(authority.get("authority_sha256")) is str
+        and isinstance(files, Mapping)
+        and set(files) == set(FILE_ROLES)
+        and isinstance(releases, Mapping)
+        and set(releases) == {"core", "plugin", "runtime"},
+        "fixed_attempt6_checkpoint_contract_rejected",
+    )
+    assert isinstance(files, Mapping)
+    assert isinstance(releases, Mapping)
+    file_roles: list[dict[str, object]] = []
+    for index, path in enumerate(sorted(FILE_ROLES)):
+        target = files[path]
+        require(
+            isinstance(target, Mapping),
+            "fixed_attempt6_checkpoint_contract_rejected",
+        )
+        role, mode = FILE_ROLES[path]
+        file_roles.append(
+            {
+                "index": index,
+                "member": f"rollback-{index:02d}.bin",
+                "mode": mode,
+                "owner": FILE_OWNERS[path],
+                "path_category": path,
+                "role": role,
+                "target_payload_sha256": target["payload_sha256"],
+            }
+        )
+    target_release_bindings = {
+        key: releases[key]["member_set_sha256"]
+        for key in ("core", "plugin", "runtime")
+    }
+    image = authority.get("image")
+    require(
+        isinstance(image, Mapping),
+        "fixed_attempt6_checkpoint_contract_rejected",
+    )
+    target_release_bindings["image"] = image["member_set_sha256"]
+    attempt_fence = {
+        "attempt5_authority_sha256": ATTEMPT5_PRODUCT_AUTHORITY_SHA256,
+        "attempt5_immutable": True,
+        "attempt6_created": False,
+        "attempt6_creation_ordinal": 1,
+        "attempt6_predecessor": 5,
+        "attempt7_allowed": False,
+        "one_shot": True,
+    }
+    current_binding_requirements = {
+        "attempt_binding_sha256": digest(
+            "phase_f_attempt6_checkpoint_attempt_binding_v1",
+            attempt_fence,
+        ),
+        "config_sha256": authority["controller"]["config_sha256"],
+        "effective_units_state": "TARGET",
+        "file_identity_schema": ATTEMPT6_CHECKPOINT_FILE_IDENTITY_SCHEMA,
+        "release_member_sets": target_release_bindings,
+        "schema": ATTEMPT6_CHECKPOINT_CURRENT_BINDINGS_SCHEMA,
+        "selected_root_identity": ATTEMPT5_PRIOR_ARCHIVE_CHILD_IDENTITY,
+        "selected_root_state": "TARGET",
+        "source_authority_sha256": authority["authority_sha256"],
+        "unit_files_sha256": digest(
+            "phase_f_attempt6_checkpoint_unit_files_v1",
+            {
+                path: files[path]["payload_sha256"]
+                for path in sorted(FILE_ROLES)
+                if path.endswith(".conf")
+            },
+        ),
+    }
+    body: dict[str, object] = {
+        "attempt_fence": attempt_fence,
+        "capability": ATTEMPT6_CHECKPOINT_CAPABILITY,
+        "current_binding_requirements": current_binding_requirements,
+        "file_roles": file_roles,
+        "legal_states": [
+            "ABSENT",
+            "SEALED_CHECKPOINT",
+            "TARGET",
+            "CHECKPOINT_RESTORED",
+        ],
+        "member_order": [row["member"] for row in file_roles],
+        "retirement_conditions": list(ATTEMPT6_CHECKPOINT_RETIREMENT),
+        "rollback_only": True,
+        "runtime_fallback": False,
+        "schema": ATTEMPT6_CHECKPOINT_SCHEMA,
+        "target_bindings": {
+            "config_sha256": authority["controller"]["config_sha256"],
+            "replacement_attempt6_authority_sha256": (
+                REPLACEMENT_ATTEMPT6_AUTHORITY_SHA256
+            ),
+            "release_member_sets": target_release_bindings,
+            "source_authority_sha256": authority["authority_sha256"],
+            "target_tuple_sha256": REPLACEMENT_ATTEMPT6_TARGET_TUPLE_SHA256,
+        },
+        "target_truth_from_checkpoint": False,
+        "version": ATTEMPT6_CHECKPOINT_VERSION,
+    }
+    return {
+        **body,
+        "contract_sha256": digest("phase_f_attempt6_checkpoint_contract_v1", body),
+    }
 
 
 def _selected_root_phase_authority() -> dict[str, object]:
@@ -1317,6 +1455,8 @@ def source_contract() -> dict[str, object]:
         "attempt5_product_authority_sha256": ATTEMPT5_PRODUCT_AUTHORITY_SHA256,
         "attempt5_product_controller_release": ATTEMPT5_PRODUCT_CONTROLLER_RELEASE,
         "attempt5_product_entry_plan_sha256": ATTEMPT5_PRODUCT_ENTRY_PLAN_SHA256,
+        "attempt6_checkpoint_capability": ATTEMPT6_CHECKPOINT_CAPABILITY,
+        "attempt6_checkpoint_schema": ATTEMPT6_CHECKPOINT_SCHEMA,
         "archive_prefix": ARCHIVE_PREFIX,
         "astrbot_commit": ACCEPTED_ASTRBOT_COMMIT,
         "builder_blobs": [HYBRID_BUILDER_BLOB, GATEWAY_BUILDER_BLOB],
@@ -1833,9 +1973,11 @@ def build_fixed_plan(
         "fixed_archive_observation_rejected",
     )
     replacement_attempt6 = dict(_REPLACEMENT_ATTEMPT6_AUTHORITY)
+    checkpoint_contract = attempt6_checkpoint_contract(authority)
     plan_body = {
         "archive_name": archive_name,
         "authority": authority,
+        "checkpoint_contract": checkpoint_contract,
         "fixed_stages": list(FIXED_STAGES),
         "observation": observation,
         "replacement_attempt6": replacement_attempt6,
@@ -1858,6 +2000,7 @@ def validate_fixed_plan(value: object) -> dict[str, object]:
         {
             "archive_name",
             "authority",
+            "checkpoint_contract",
             "fixed_stages",
             "observation",
             "plan_sha256",
@@ -1888,6 +2031,12 @@ def validate_fixed_plan(value: object) -> dict[str, object]:
         plan["target_effect"] == target_effect,
         "fixed_target_effect_rejected",
     )
+    checkpoint_contract = attempt6_checkpoint_contract(authority)
+    require(
+        canonical(plan["checkpoint_contract"])
+        == canonical(checkpoint_contract),
+        "fixed_attempt6_checkpoint_contract_rejected",
+    )
     replacement_attempt6 = dict(_REPLACEMENT_ATTEMPT6_AUTHORITY)
     replacement_body = {
         key: value
@@ -1909,6 +2058,7 @@ def validate_fixed_plan(value: object) -> dict[str, object]:
     body = {
         "archive_name": archive_name,
         "authority": authority,
+        "checkpoint_contract": checkpoint_contract,
         "fixed_stages": list(FIXED_STAGES),
         "observation": observation,
         "replacement_attempt6": replacement_attempt6,
