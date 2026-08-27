@@ -293,7 +293,7 @@ class ProductionPlanTests(unittest.TestCase):
             module.CHECKPOINT_NEXT_STAGE[
                 "POST_WRITER_DURABILITY_TARGET_START_REQUIRED"
             ],
-            "RESUME_ATTEMPT5_TARGET_ONCE",
+            "START_REPLACEMENT_ATTEMPT6_TARGET_ONCE",
         )
         self.assertIsNone(
             module.CHECKPOINT_NEXT_STAGE["POST_WRITER_DURABILITY_TARGET"]
@@ -398,10 +398,11 @@ class ProductionPlanTests(unittest.TestCase):
     def test_unresolved_or_substituted_authority_rejects(self) -> None:
         self.assertEqual(
             module.ACCEPTED_DEPLOY_PARENT,
-            "bbf6d407ba94cd622e923bd41274527e718a21a0",
+            "ae634e82eba960cb4a3a8f9e3b848fb05331537f",
         )
         selected = authority(19001)
         for kind, parent in (
+            ("reviewed-parent", "9985a3b414a752b3d93cedc491de7e4c912cc3cd"),
             ("prior-parent", "beb53ffe931fd81cf20435aa1f55ad19aaf5a9f6"),
             ("old-direct", "e7d624659b882280b5c874e3095dcc46662236b6"),
             ("prior-main", "5f6e32c4abc0f7e23c29cdda94cb675ebf0d077b"),
@@ -557,11 +558,11 @@ class ProductionPlanTests(unittest.TestCase):
                 "writer_bound": True,
             },
         )
+        contract = module.source_contract()
+        self.assertNotIn("post_writer_selected_root_authority_sha256", contract)
         self.assertEqual(
-            module.source_contract()[
-                "post_writer_selected_root_authority_sha256"
-            ],
-            "58d16ade22d99f18ca23541e8101f0e6dfe488404b7a20e014f4e6dab30ccbb0",
+            contract["replacement_attempt6_authority_sha256"],
+            module.REPLACEMENT_ATTEMPT6_AUTHORITY_SHA256,
         )
         for field, value in (
             ("_SELECTED_ROOT_PHASE", "THIRD_STATE"),
@@ -668,7 +669,7 @@ class ProductionPlanTests(unittest.TestCase):
     def test_attempt5_stopped_old_container_authority_is_frozen(self) -> None:
         self.assertEqual(
             module.ACCEPTED_DEPLOY_PARENT,
-            "bbf6d407ba94cd622e923bd41274527e718a21a0",
+            "ae634e82eba960cb4a3a8f9e3b848fb05331537f",
         )
         self.assertEqual(
             module.ATTEMPT5_OLD_CONTAINER_ID,
@@ -924,6 +925,116 @@ class ProductionPlanTests(unittest.TestCase):
         self.assertEqual(set(boundaries), {"p01", "p08", "p09", "p10", "p15", "p16"})
         self.assertTrue(all(row["mutation_allowed"] is False for row in boundaries.values()))
 
+
+    def test_replacement_attempt6_is_one_exact_prospective_whole_tuple(self) -> None:
+        replacements: list[dict[str, object]] = []
+        for seed in (11, 29):
+            selected = authority(seed)
+            current, old_hashes = observation(selected)
+            with mock.patch.dict(module.OLD_FILE_SHA256, old_hashes, clear=True):
+                plan = module.build_fixed_plan(selected, current)
+                self.assertEqual(module.validate_fixed_plan(plan), plan)
+            replacement = plan["replacement_attempt6"]
+            self.assertEqual(
+                replacement,
+                module.source_contract()["replacement_attempt6"],
+            )
+            self.assertEqual(replacement["attempt"], 6)
+            self.assertEqual(replacement["predecessor_attempt"], 5)
+            self.assertTrue(replacement["attempt5_immutable"])
+            self.assertFalse(replacement["attempt5_resume_allowed"])
+            self.assertEqual(replacement["execution_owner"], "ATTEMPT6")
+            self.assertEqual(
+                replacement["target_start_stage"],
+                "START_REPLACEMENT_ATTEMPT6_TARGET_ONCE",
+            )
+            self.assertFalse(replacement["consumed"])
+            self.assertFalse(replacement["writer_bound"])
+            self.assertEqual(replacement["creation_ordinal"], 1)
+            self.assertEqual(replacement["callbacks"], 0)
+            self.assertEqual(replacement["receipt_state"], "UNCREATED")
+            self.assertIsNone(replacement["receipt_sha256"])
+            self.assertEqual(
+                replacement["current_tuple_sha256"],
+                "a6a5d8adc79ef7085b050e8aee7f0adf1da7341ede441fa81dc066ac766caf17",
+            )
+            self.assertEqual(
+                replacement["rollback_tuple_sha256"],
+                replacement["current_tuple_sha256"],
+            )
+            self.assertEqual(
+                replacement["target_tuple_sha256"],
+                "96c4b4f8320b22c239f8a73f404d343bae4f14bdf41516ba123b31cdfca33ee4",
+            )
+            replacements.append(replacement)
+        self.assertEqual(*replacements)
+        self.assertNotIn(
+            "post_writer_selected_root_authority_sha256",
+            module.source_contract(),
+        )
+        self.assertNotIn("RESUME_ATTEMPT5_TARGET_ONCE", module.FIXED_STAGES)
+
+    def test_replacement_attempt6_hostile_authorities_reject(self) -> None:
+        selected = authority(11)
+        current, old_hashes = observation(selected)
+        with mock.patch.dict(module.OLD_FILE_SHA256, old_hashes, clear=True):
+            plan = module.build_fixed_plan(selected, current)
+        hostile_fields = (
+            ("attempt", 7),
+            ("predecessor_attempt", 6),
+            ("attempt5_immutable", False),
+            ("attempt5_resume_allowed", True),
+            ("creation_ordinal", 2),
+            ("execution_owner", "ATTEMPT5"),
+            ("consumed", True),
+            ("writer_bound", True),
+            ("callbacks", 1),
+            ("current_role", "THIRD_STATE"),
+            ("target_role", "THIRD_STATE"),
+            ("rollback_role", "EXACT_TARGET"),
+            ("current_tuple_sha256", module.REPLACEMENT_ATTEMPT6_TARGET_TUPLE_SHA256),
+            ("target_tuple_sha256", module.REPLACEMENT_ATTEMPT6_CURRENT_TUPLE_SHA256),
+            ("rollback_tuple_sha256", module.REPLACEMENT_ATTEMPT6_TARGET_TUPLE_SHA256),
+            ("receipt_state", "PRESENT"),
+            ("receipt_sha256", "0" * 64),
+            ("target_start_stage", "RESUME_ATTEMPT5_TARGET_ONCE"),
+            ("authority_sha256", "0" * 64),
+        )
+        for field, value in hostile_fields:
+            hostile = module.json.loads(module.canonical(plan))
+            hostile["replacement_attempt6"][field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(
+                module.ProductionPlanRejected,
+                "fixed_replacement_attempt6_authority_rejected",
+            ):
+                module.validate_fixed_plan(hostile)
+        for key in (
+            "attempt5_resume_allowed",
+            "current_tuple_sha256",
+            "execution_owner",
+            "receipt_state",
+            "target_start_stage",
+        ):
+            partial = module.json.loads(module.canonical(plan))
+            del partial["replacement_attempt6"][key]
+            with self.subTest(missing=key), self.assertRaisesRegex(
+                module.ProductionPlanRejected,
+                "fixed_replacement_attempt6_authority_rejected",
+            ):
+                module.validate_fixed_plan(partial)
+
+        for key, value in (
+            ("attempt6_absent", True),
+            ("attempt_consumed", True),
+            ("resume_stage", "RESUME_ATTEMPT5_TARGET_ONCE"),
+        ):
+            mixed = module.json.loads(module.canonical(plan))
+            mixed["replacement_attempt6"][key] = value
+            with self.subTest(mixed=key), self.assertRaisesRegex(
+                module.ProductionPlanRejected,
+                "fixed_replacement_attempt6_authority_rejected",
+            ):
+                module.validate_fixed_plan(mixed)
 
 if __name__ == "__main__":
     unittest.main()

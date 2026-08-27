@@ -2390,6 +2390,31 @@ def _attempt5_failed_target_recovery_projection(
 
 def _checkpoint_prefix(plan_value: object) -> str:
     plan = product.validate_fixed_plan(plan_value)
+    replacement_attempt6 = plan["replacement_attempt6"]
+    require(
+        isinstance(replacement_attempt6, Mapping)
+        and replacement_attempt6["authority_sha256"]
+        == product.REPLACEMENT_ATTEMPT6_AUTHORITY_SHA256
+        and replacement_attempt6["attempt"] == 6
+        and replacement_attempt6["predecessor_attempt"] == 5
+        and replacement_attempt6["attempt5_immutable"] is True
+        and replacement_attempt6["attempt5_resume_allowed"] is False
+        and replacement_attempt6["execution_owner"] == "ATTEMPT6"
+        and replacement_attempt6["target_start_stage"]
+        == "START_REPLACEMENT_ATTEMPT6_TARGET_ONCE"
+        and replacement_attempt6["current_tuple_sha256"]
+        == product.REPLACEMENT_ATTEMPT6_CURRENT_TUPLE_SHA256
+        and replacement_attempt6["target_tuple_sha256"]
+        == product.REPLACEMENT_ATTEMPT6_TARGET_TUPLE_SHA256
+        and replacement_attempt6["rollback_tuple_sha256"]
+        == product.REPLACEMENT_ATTEMPT6_CURRENT_TUPLE_SHA256
+        and replacement_attempt6["consumed"] is False
+        and replacement_attempt6["writer_bound"] is False
+        and replacement_attempt6["receipt_state"] == "UNCREATED"
+        and replacement_attempt6["receipt_sha256"] is None
+        and replacement_attempt6["callbacks"] == 0,
+        "fixed_replacement_attempt6_authority_rejected",
+    )
     observation = plan["observation"]
     assert isinstance(observation, Mapping)
     require(
@@ -2444,12 +2469,12 @@ def _checkpoint_prefix(plan_value: object) -> str:
         and old["policy"] == "no"
     )
     if durability_roles:
-        phase = product._selected_root_phase_authority()
         require(
-            phase["attempt"] == product.TRANSITIONAL_INSTALL_ATTEMPT
-            and phase["attempt_consumed"] is True
-            and phase["writer_bound"] is True
-            and phase["attempt6_absent"] is True
+            replacement_attempt6["attempt"] == 6
+            and replacement_attempt6["execution_owner"] == "ATTEMPT6"
+            and replacement_attempt6["attempt5_resume_allowed"] is False
+            and replacement_attempt6["consumed"] is False
+            and replacement_attempt6["writer_bound"] is False
             and archive["state"] == "OLD"
             and archive["identity"] is None
             and selected_state == "TARGET"
@@ -2952,7 +2977,7 @@ def run_checkpointed_stage(
     require(
         (
             requested_stage
-            in {"ARM_AND_START_TARGET_ONCE", "RESUME_ATTEMPT5_TARGET_ONCE"}
+            in {"ARM_AND_START_TARGET_ONCE", "START_REPLACEMENT_ATTEMPT6_TARGET_ONCE"}
         )
         == supervised_start,
         "fixed_supervised_decision_rejected",
@@ -3103,7 +3128,7 @@ def run_checkpointed_stage(
                 and after_service["identity"] == captured["identity"],
                 "fixed_checkpoint_service_poststate_rejected",
             )
-        elif requested_stage == "RESUME_ATTEMPT5_TARGET_ONCE":
+        elif requested_stage == "START_REPLACEMENT_ATTEMPT6_TARGET_ONCE":
             target = before_observation["target_container"]
             require(
                 target["state"] == "TARGET"
@@ -3136,7 +3161,7 @@ def run_checkpointed_stage(
             callbacks += 1
             _start_target_once(plan, str(target["identity"]))
     except Exception as exc:
-        if requested_stage == "RESUME_ATTEMPT5_TARGET_ONCE":
+        if requested_stage == "START_REPLACEMENT_ATTEMPT6_TARGET_ONCE":
             try:
                 after_plan = _fresh_checkpoint_plan(authority)
                 prefix_after = _checkpoint_prefix(after_plan)
@@ -3378,7 +3403,7 @@ def run_checkpointed_stage(
         ),
         reason=(
             "durability_target_verified"
-            if requested_stage == "RESUME_ATTEMPT5_TARGET_ONCE"
+            if requested_stage == "START_REPLACEMENT_ATTEMPT6_TARGET_ONCE"
             else "writer_dispatched_terminal_observation_requires_owner"
             if writer_boundary
             else "stage_target_verified"
@@ -4409,7 +4434,7 @@ def main() -> int:
     require(
         not values.supervised_start
         or values.stage
-        in {"ARM_AND_START_TARGET_ONCE", "RESUME_ATTEMPT5_TARGET_ONCE"},
+        in {"ARM_AND_START_TARGET_ONCE", "START_REPLACEMENT_ATTEMPT6_TARGET_ONCE"},
         "fixed_supervised_decision_rejected",
     )
     if values.install_current_controller_unit:

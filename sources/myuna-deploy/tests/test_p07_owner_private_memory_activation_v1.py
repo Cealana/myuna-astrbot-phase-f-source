@@ -1481,6 +1481,7 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
                 "authority",
                 "fixed_stages",
                 "observation",
+                "replacement_attempt6",
                 "schema",
                 "target_effect",
             )
@@ -3308,12 +3309,6 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
     def test_post_writer_durability_prefix_tuple_is_exact_and_callback_free(
         self,
     ) -> None:
-        phase = {
-            "attempt": 5,
-            "attempt_consumed": True,
-            "writer_bound": True,
-            "attempt6_absent": True,
-        }
         cases = (
             (False, False, "POST_WRITER_DURABILITY_SOCKET_REQUIRED"),
             (True, False, "POST_WRITER_DURABILITY_TARGET_START_REQUIRED"),
@@ -3325,8 +3320,6 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
                 target_active=target_active,
             )
             with self.subTest(prefix=prefix), mock.patch.object(
-                product, "_selected_root_phase_authority", return_value=phase
-            ), mock.patch.object(
                 module, "_effective_units_state", return_value="TARGET"
             ):
                 self.assertEqual(module._checkpoint_prefix(plan), prefix)
@@ -3358,31 +3351,27 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
                 {key: hostile[key] for key in hostile if key != "plan_sha256"},
             )
             with self.subTest(role=role, field=field), mock.patch.object(
-                product, "_selected_root_phase_authority", return_value=phase
-            ), mock.patch.object(
                 module, "_effective_units_state", return_value="TARGET"
             ), self.assertRaises(
                 (module.MemoryActivationRejected, product.ProductionPlanRejected)
             ):
                 module._checkpoint_prefix(hostile)
 
-        for phase_field, value in (
-            ("attempt", 6),
-            ("attempt_consumed", False),
-            ("writer_bound", False),
-            ("attempt6_absent", False),
+        for authority_field, value in (
+            ("attempt5_resume_allowed", True),
+            ("execution_owner", "ATTEMPT5"),
+            ("target_start_stage", "RESUME_ATTEMPT5_TARGET_ONCE"),
         ):
-            hostile_phase = dict(phase, **{phase_field: value})
-            with self.subTest(phase_field=phase_field), mock.patch.object(
-                product,
-                "_selected_root_phase_authority",
-                return_value=hostile_phase,
-            ), mock.patch.object(
+            hostile = copy.deepcopy(base)
+            hostile["replacement_attempt6"][authority_field] = value
+            with self.subTest(authority_field=authority_field), mock.patch.object(
                 module, "_effective_units_state", return_value="TARGET"
-            ), self.assertRaises(module.MemoryActivationRejected):
-                module._checkpoint_prefix(base)
+            ), self.assertRaises(
+                (module.MemoryActivationRejected, product.ProductionPlanRejected)
+            ):
+                module._checkpoint_prefix(hostile)
 
-    def test_post_writer_durability_resume_never_replays_fence_or_dispatch(
+    def test_replacement_attempt6_start_never_replays_fence_or_dispatch(
         self,
     ) -> None:
         before, _selected = self.durability_plan(socket_active=True)
@@ -3404,7 +3393,7 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
         ) as policy:
             result = module.run_checkpointed_stage(
                 before,
-                requested_stage="RESUME_ATTEMPT5_TARGET_ONCE",
+                requested_stage="START_REPLACEMENT_ATTEMPT6_TARGET_ONCE",
                 supervised_start=True,
             )
         start.assert_called_once_with(
@@ -3444,7 +3433,7 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
             ) as policy:
                 lost = module.run_checkpointed_stage(
                     before,
-                    requested_stage="RESUME_ATTEMPT5_TARGET_ONCE",
+                    requested_stage="START_REPLACEMENT_ATTEMPT6_TARGET_ONCE",
                     supervised_start=True,
                 )
             lost_start.assert_called_once()
@@ -3452,6 +3441,23 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
             self.assertEqual(lost["callbacks"], 1)
             self.assertEqual(lost["reason"], expected_reason)
             self.assertIsNone(lost["next_stage"])
+
+        self.assertNotIn("RESUME_ATTEMPT5_TARGET_ONCE", product.FIXED_STAGES)
+        with mock.patch.object(
+            module,
+            "_checkpoint_prefix",
+            return_value="POST_WRITER_DURABILITY_TARGET_START_REQUIRED",
+        ), mock.patch.object(module, "_start_target_once") as old_start:
+            with self.assertRaisesRegex(
+                module.MemoryActivationRejected,
+                "fixed_checkpoint_stage_request_rejected",
+            ):
+                module.run_checkpointed_stage(
+                    before,
+                    requested_stage="RESUME_ATTEMPT5_TARGET_ONCE",
+                    supervised_start=True,
+                )
+        old_start.assert_not_called()
 
     def test_running_and_stopped_old_network_membership_are_state_specific(
         self,
@@ -4429,8 +4435,9 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
     def test_cli_supervised_stage_matrix_is_finite_and_owner_guarded(self) -> None:
         accepted = {
             "ARM_AND_START_TARGET_ONCE",
-            "RESUME_ATTEMPT5_TARGET_ONCE",
+            "START_REPLACEMENT_ATTEMPT6_TARGET_ONCE",
         }
+        self.assertNotIn("RESUME_ATTEMPT5_TARGET_ONCE", product.FIXED_STAGES)
 
         for stage in sorted(accepted):
             with self.subTest(stage=stage, grant="exact"), mock.patch.object(
@@ -4489,6 +4496,88 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
                     stage=stage,
                     supervised_start=False,
                 )
+
+    def test_replacement_attempt6_rejects_before_owner_callbacks(self) -> None:
+        plan, _selected, _old = self.make_plan(files_old=False)
+        hostile_fields = (
+            ("attempt", 7),
+            ("predecessor_attempt", 6),
+            ("attempt5_authority_sha256", "0" * 64),
+            ("attempt5_immutable", False),
+            ("attempt5_resume_allowed", True),
+            ("creation_ordinal", 2),
+            ("execution_owner", "ATTEMPT5"),
+            ("consumed", True),
+            ("writer_bound", True),
+            ("callbacks", 1),
+            ("current_role", "THIRD_STATE"),
+            ("target_role", "THIRD_STATE"),
+            ("rollback_role", "EXACT_TARGET"),
+            ("current_tuple_sha256", product.REPLACEMENT_ATTEMPT6_TARGET_TUPLE_SHA256),
+            ("target_tuple_sha256", product.REPLACEMENT_ATTEMPT6_CURRENT_TUPLE_SHA256),
+            ("rollback_tuple_sha256", product.REPLACEMENT_ATTEMPT6_TARGET_TUPLE_SHA256),
+            ("receipt_state", "PRESENT"),
+            ("receipt_sha256", "0" * 64),
+            ("target_start_stage", "RESUME_ATTEMPT5_TARGET_ONCE"),
+            ("authority_sha256", "0" * 64),
+        )
+        callbacks = (
+            "_atomic_file",
+            "_command",
+            "_create_target_container",
+            "_publish_image",
+            "_publish_release",
+            "_remove_target",
+            "_start_target_once",
+        )
+        for field, value in hostile_fields:
+            hostile = copy.deepcopy(plan)
+            hostile["replacement_attempt6"][field] = value
+            with self.subTest(field=field), ExitStack() as stack:
+                spies = [
+                    stack.enter_context(mock.patch.object(module, name))
+                    for name in callbacks
+                ]
+                with self.assertRaisesRegex(
+                    product.ProductionPlanRejected,
+                    "fixed_replacement_attempt6_authority_rejected",
+                ):
+                    module._checkpoint_prefix(hostile)
+                for spy in spies:
+                    spy.assert_not_called()
+        for missing in (
+            "attempt5_resume_allowed",
+            "execution_owner",
+            "receipt_state",
+            "target_start_stage",
+            "target_tuple_sha256",
+        ):
+            partial = copy.deepcopy(plan)
+            del partial["replacement_attempt6"][missing]
+            with self.subTest(missing=missing), mock.patch.object(
+                module, "_command"
+            ) as runner, self.assertRaisesRegex(
+                product.ProductionPlanRejected,
+                "fixed_replacement_attempt6_authority_rejected",
+            ):
+                module._checkpoint_prefix(partial)
+            runner.assert_not_called()
+
+        for key, value in (
+            ("attempt6_absent", True),
+            ("attempt_consumed", True),
+            ("resume_stage", "RESUME_ATTEMPT5_TARGET_ONCE"),
+        ):
+            mixed = copy.deepcopy(plan)
+            mixed["replacement_attempt6"][key] = value
+            with self.subTest(mixed=key), mock.patch.object(
+                module, "_start_target_once"
+            ) as start, self.assertRaisesRegex(
+                product.ProductionPlanRejected,
+                "fixed_replacement_attempt6_authority_rejected",
+            ):
+                module._checkpoint_prefix(mixed)
+            start.assert_not_called()
 
     def test_source_has_no_generic_owner_or_private_database_primitive(self) -> None:
         text = MODULE_PATH.read_text("utf-8")

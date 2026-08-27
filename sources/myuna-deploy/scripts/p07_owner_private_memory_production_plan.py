@@ -20,7 +20,7 @@ SOURCE_SCHEMA = "myuna.phase-f.fixed-product-source-authority.v1"
 OBSERVATION_SCHEMA = "myuna.phase-f.fixed-product-observation.v1"
 PLAN_SCHEMA = "myuna.phase-f.fixed-product-plan.v1"
 RESULT_SCHEMA = "myuna.phase-f.fixed-product-result.v1"
-ACCEPTED_DEPLOY_PARENT = "bbf6d407ba94cd622e923bd41274527e718a21a0"
+ACCEPTED_DEPLOY_PARENT = "ae634e82eba960cb4a3a8f9e3b848fb05331537f"
 ACCEPTED_CORE_COMMIT = "4c13c0b20552b5d8a8720f180d0569405fed00b0"
 ACCEPTED_CORE_TREE = "e43ae07babf5a448525d1035d400a37fde374a2b"
 HYBRID_BUILDER_BLOB = "2c92a5f7d995fd08ed658d4cc905a6db6dd2ac65"
@@ -175,6 +175,18 @@ _SELECTED_ROOT_NETWORK_PROJECTION_SHA256 = (
 _SELECTED_ROOT_PHASE_AUTHORITY_SHA256 = (
     "58d16ade22d99f18ca23541e8101f0e6dfe488404b7a20e014f4e6dab30ccbb0"
 )
+REPLACEMENT_ATTEMPT6_SCHEMA = (
+    "myuna.phase-f.replacement-attempt6-authority.v1"
+)
+REPLACEMENT_ATTEMPT6_CURRENT_TUPLE_SHA256 = (
+    "a6a5d8adc79ef7085b050e8aee7f0adf1da7341ede441fa81dc066ac766caf17"
+)
+REPLACEMENT_ATTEMPT6_TARGET_TUPLE_SHA256 = (
+    "96c4b4f8320b22c239f8a73f404d343bae4f14bdf41516ba123b31cdfca33ee4"
+)
+REPLACEMENT_ATTEMPT6_AUTHORITY_SHA256 = (
+    "8b388479c4abb275173f935f97a205b57ee4968f3d2a9e0c542e9f4fd05998af"
+)
 ATTEMPT5_PRIOR_CONTROLLER_RELEASE = (
     "24064115ccdd0ca83c2dd94a49349bfbb7f706cbbdfd609cb00212aba0caf564"
 )
@@ -257,7 +269,7 @@ FIXED_STAGES = (
     "START_RUNTIME_SOCKET",
     "ARM_AND_START_TARGET_ONCE",
     "RECOVER_ATTEMPT5_FAILED_TARGET_TO_CORRECTED_STOPPED",
-    "RESUME_ATTEMPT5_TARGET_ONCE",
+    "START_REPLACEMENT_ATTEMPT6_TARGET_ONCE",
 )
 
 IMMUTABLE_ARTIFACTS = ("core", "plugin", "runtime", "image")
@@ -344,7 +356,7 @@ CHECKPOINT_NEXT_STAGE = {
     "POST_WRITER_MANUAL": None,
     "POST_WRITER_RECOVERY_REQUIRED": "RECOVER_ATTEMPT5_FAILED_TARGET_TO_CORRECTED_STOPPED",
     "POST_WRITER_DURABILITY_SOCKET_REQUIRED": "START_RUNTIME_SOCKET",
-    "POST_WRITER_DURABILITY_TARGET_START_REQUIRED": "RESUME_ATTEMPT5_TARGET_ONCE",
+    "POST_WRITER_DURABILITY_TARGET_START_REQUIRED": "START_REPLACEMENT_ATTEMPT6_TARGET_ONCE",
     "POST_WRITER_DURABILITY_TARGET": None,
 }
 CHECKPOINT_STAGE_TARGET = {
@@ -365,7 +377,7 @@ CHECKPOINT_STAGE_TARGET = {
     "START_RUNTIME_SOCKET": "READY_FOR_SUPERVISED_GATE",
     "ARM_AND_START_TARGET_ONCE": "POST_WRITER_MANUAL",
     "RECOVER_ATTEMPT5_FAILED_TARGET_TO_CORRECTED_STOPPED": "TARGET_CONTAINER_STOPPED",
-    "RESUME_ATTEMPT5_TARGET_ONCE": "POST_WRITER_DURABILITY_TARGET",
+    "START_REPLACEMENT_ATTEMPT6_TARGET_ONCE": "POST_WRITER_DURABILITY_TARGET",
 }
 
 
@@ -432,6 +444,44 @@ def canonical(value: object) -> bytes:
 
 def digest(domain: str, value: object) -> str:
     return sha256(domain.encode("ascii") + b"\0" + canonical(value)).hexdigest()
+
+_REPLACEMENT_ATTEMPT6_AUTHORITY_BODY: dict[str, object] = {
+    "attempt": 6,
+    "attempt5_authority_sha256": ATTEMPT5_PRODUCT_AUTHORITY_SHA256,
+    "attempt5_immutable": True,
+    "attempt5_resume_allowed": False,
+    "callbacks": 0,
+    "consumed": False,
+    "creation_ordinal": 1,
+    "current_role": "EXACT_CURRENT",
+    "current_tuple_sha256": REPLACEMENT_ATTEMPT6_CURRENT_TUPLE_SHA256,
+    "domain": _SELECTED_ROOT_PHASE_DOMAIN,
+    "execution_owner": "ATTEMPT6",
+    "predecessor_attempt": 5,
+    "receipt_required": True,
+    "receipt_sha256": None,
+    "receipt_state": "UNCREATED",
+    "rollback_role": "EXACT_CURRENT",
+    "rollback_tuple_sha256": REPLACEMENT_ATTEMPT6_CURRENT_TUPLE_SHA256,
+    "schema": REPLACEMENT_ATTEMPT6_SCHEMA,
+    "target_role": "EXACT_TARGET",
+    "target_start_stage": "START_REPLACEMENT_ATTEMPT6_TARGET_ONCE",
+    "target_tuple_sha256": REPLACEMENT_ATTEMPT6_TARGET_TUPLE_SHA256,
+    "version": 1,
+    "writer_bound": False,
+}
+require(
+    digest(
+        "phase_f_replacement_attempt6_authority_v1",
+        _REPLACEMENT_ATTEMPT6_AUTHORITY_BODY,
+    )
+    == REPLACEMENT_ATTEMPT6_AUTHORITY_SHA256,
+    "fixed_replacement_attempt6_authority_rejected",
+)
+_REPLACEMENT_ATTEMPT6_AUTHORITY = {
+    **_REPLACEMENT_ATTEMPT6_AUTHORITY_BODY,
+    "authority_sha256": REPLACEMENT_ATTEMPT6_AUTHORITY_SHA256,
+}
 
 
 def _selected_root_phase_authority() -> dict[str, object]:
@@ -1259,11 +1309,7 @@ def validate_r5_durability_authority(
 def source_contract() -> dict[str, object]:
     """Return the finite source-owned shape; it contains no runtime truth."""
 
-    selected_root_phase = _selected_root_phase_authority()
-    require(
-        selected_root_phase["phase"] == "POST_WRITER",
-        "fixed_selected_root_phase_authority_rejected",
-    )
+    replacement_attempt6 = dict(_REPLACEMENT_ATTEMPT6_AUTHORITY)
     return {
         "accepted_core_commit": ACCEPTED_CORE_COMMIT,
         "accepted_core_tree": ACCEPTED_CORE_TREE,
@@ -1288,7 +1334,8 @@ def source_contract() -> dict[str, object]:
         },
         "network": NETWORK_NAME,
         "parent_release_set_id": PARENT_RELEASE_SET_ID,
-        "post_writer_selected_root_authority_sha256": _SELECTED_ROOT_PHASE_AUTHORITY_SHA256,
+        "replacement_attempt6_authority_sha256": REPLACEMENT_ATTEMPT6_AUTHORITY_SHA256,
+        "replacement_attempt6": replacement_attempt6,
         "runtime_base_digest": ACCEPTED_RUNTIME_BASE,
         "schema": SOURCE_SCHEMA,
     }
@@ -1785,11 +1832,13 @@ def build_fixed_plan(
         observation["archive_name"]["name"] == archive_name,
         "fixed_archive_observation_rejected",
     )
+    replacement_attempt6 = dict(_REPLACEMENT_ATTEMPT6_AUTHORITY)
     plan_body = {
         "archive_name": archive_name,
         "authority": authority,
         "fixed_stages": list(FIXED_STAGES),
         "observation": observation,
+        "replacement_attempt6": replacement_attempt6,
         "schema": PLAN_SCHEMA,
         "target_effect": (
             _attempt5_target_effect(authority, observation)
@@ -1812,6 +1861,7 @@ def validate_fixed_plan(value: object) -> dict[str, object]:
             "fixed_stages",
             "observation",
             "plan_sha256",
+            "replacement_attempt6",
             "schema",
             "target_effect",
         },
@@ -1838,11 +1888,30 @@ def validate_fixed_plan(value: object) -> dict[str, object]:
         plan["target_effect"] == target_effect,
         "fixed_target_effect_rejected",
     )
+    replacement_attempt6 = dict(_REPLACEMENT_ATTEMPT6_AUTHORITY)
+    replacement_body = {
+        key: value
+        for key, value in replacement_attempt6.items()
+        if key != "authority_sha256"
+    }
+    require(
+        digest("phase_f_replacement_attempt6_authority_v1", replacement_body)
+        == REPLACEMENT_ATTEMPT6_AUTHORITY_SHA256
+        and replacement_attempt6["authority_sha256"]
+        == REPLACEMENT_ATTEMPT6_AUTHORITY_SHA256,
+        "fixed_replacement_attempt6_authority_rejected",
+    )
+    require(
+        canonical(plan["replacement_attempt6"])
+        == canonical(replacement_attempt6),
+        "fixed_replacement_attempt6_authority_rejected",
+    )
     body = {
         "archive_name": archive_name,
         "authority": authority,
         "fixed_stages": list(FIXED_STAGES),
         "observation": observation,
+        "replacement_attempt6": replacement_attempt6,
         "schema": PLAN_SCHEMA,
         "target_effect": target_effect,
     }
