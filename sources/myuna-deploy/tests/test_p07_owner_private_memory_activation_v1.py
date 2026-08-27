@@ -1665,8 +1665,12 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
         current_release = "c" * 64
         current_envelope = {
             **copy.deepcopy(selected),
+            "authority_sha256": "b" * 64,
             "release_sha256": current_release,
         }
+        self.assertNotEqual(
+            current_envelope["authority_sha256"], selected["authority_sha256"]
+        )
         with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
             module,
             "__file__",
@@ -1701,6 +1705,69 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
             module.CONTROLLER_RELEASES_ROOT
             / product.ATTEMPT5_PRODUCT_CONTROLLER_RELEASE
         )
+
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
+            module,
+            "__file__",
+            (Path(temporary) / current_release / "activate.py").as_posix(),
+        ), mock.patch.object(
+            module.resume,
+            "verify_fixed_controller_release",
+            side_effect=module.resume.ResumeRejected(
+                "fixed_controller_authority_rejected"
+            ),
+        ) as rejected_verify, mock.patch.object(
+            module,
+            "_historical_controller_authority",
+        ) as frozen_not_reached:
+            with self.assertRaisesRegex(
+                module.resume.ResumeRejected,
+                "fixed_controller_authority_rejected",
+            ):
+                module.load_installed_source_authority()
+        rejected_verify.assert_called_once()
+        frozen_not_reached.assert_not_called()
+
+        aliased_current = copy.deepcopy(current_envelope)
+        aliased_current["authority_sha256"] = selected["authority_sha256"]
+        aliased_current["source"]["core_commit"] = "0" * 40
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
+            module,
+            "__file__",
+            (Path(temporary) / current_release / "activate.py").as_posix(),
+        ), mock.patch.object(
+            module.resume,
+            "verify_fixed_controller_release",
+            return_value=aliased_current,
+        ) as aliased_verify, mock.patch.object(
+            module,
+            "_historical_controller_authority",
+        ) as frozen_not_reached:
+            with self.assertRaises(product.ProductionPlanRejected) as raised:
+                module.load_installed_source_authority()
+        self.assertEqual(raised.exception.code, "fixed_source_authority_rejected")
+        aliased_verify.assert_called_once()
+        frozen_not_reached.assert_not_called()
+
+        substituted_current = copy.deepcopy(current_envelope)
+        substituted_current["controller"]["config_sha256"] = "0" * 64
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
+            module,
+            "__file__",
+            (Path(temporary) / current_release / "activate.py").as_posix(),
+        ), mock.patch.object(
+            module.resume,
+            "verify_fixed_controller_release",
+            return_value=substituted_current,
+        ), mock.patch.object(
+            module,
+            "_historical_controller_authority",
+        ) as frozen_not_reached:
+            with self.assertRaises(product.ProductionPlanRejected) as raised:
+                module.load_installed_source_authority()
+        self.assertEqual(raised.exception.code, "fixed_controller_authority_rejected")
+        frozen_not_reached.assert_not_called()
+
         varied_release = "d" * 64
         varied_current = {
             **current_envelope,
@@ -1761,6 +1828,10 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
         current["archive_root"]["selected_state"] = "TARGET"
         current["network"]["member_ids"] = []
         with mock.patch.object(
+            product,
+            "ATTEMPT5_OLD_CONTAINER_ID",
+            "old-object",
+        ), mock.patch.object(
             product,
             "ATTEMPT5_PRODUCT_AUTHORITY_SHA256",
             frozen_digest,

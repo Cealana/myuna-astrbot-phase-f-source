@@ -2149,8 +2149,6 @@ def load_installed_source_authority() -> dict[str, object]:
     current_source = current_authority["source"]
     require(
         current_release == current_root.name
-        and current_authority["authority_sha256"]
-        == current.get("authority_sha256")
         and current_source.get("core_commit") == product.ACCEPTED_CORE_COMMIT
         and current_source.get("core_tree") == product.ACCEPTED_CORE_TREE
         and current_source.get("deploy_parent") == product.ACCEPTED_DEPLOY_PARENT,

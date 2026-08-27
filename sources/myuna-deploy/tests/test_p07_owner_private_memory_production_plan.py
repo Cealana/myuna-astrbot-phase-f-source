@@ -398,10 +398,11 @@ class ProductionPlanTests(unittest.TestCase):
     def test_unresolved_or_substituted_authority_rejects(self) -> None:
         self.assertEqual(
             module.ACCEPTED_DEPLOY_PARENT,
-            "beb53ffe931fd81cf20435aa1f55ad19aaf5a9f6",
+            "bbf6d407ba94cd622e923bd41274527e718a21a0",
         )
         selected = authority(19001)
         for kind, parent in (
+            ("prior-parent", "beb53ffe931fd81cf20435aa1f55ad19aaf5a9f6"),
             ("old-direct", "e7d624659b882280b5c874e3095dcc46662236b6"),
             ("prior-main", "5f6e32c4abc0f7e23c29cdda94cb675ebf0d077b"),
             ("old", "3ff4b54bec8d6b1522bcba5b76a572984227cc62"),
@@ -667,7 +668,7 @@ class ProductionPlanTests(unittest.TestCase):
     def test_attempt5_stopped_old_container_authority_is_frozen(self) -> None:
         self.assertEqual(
             module.ACCEPTED_DEPLOY_PARENT,
-            "beb53ffe931fd81cf20435aa1f55ad19aaf5a9f6",
+            "bbf6d407ba94cd622e923bd41274527e718a21a0",
         )
         self.assertEqual(
             module.ATTEMPT5_OLD_CONTAINER_ID,
