@@ -29,32 +29,34 @@ import telegram_r5_boot_resume as boot
 
 
 SCHEMA = "myuna.phase-f.owner-adjudicated-one-time-cutover.v1"
-EXPECTED_DEPLOY_PARENT = "c172aad62030bdd8f319ae394afe9665c936eb7d"
+EXPECTED_DEPLOY_PARENT = "54c45bf791e655a72d0b087756fed49da0e45fed"
 RELEASES_ROOT = Path("/opt/myuna/telegram-r5/releases")
 LOCK_PATH = RELEASES_ROOT / ".myuna-phase-f.lock"
-CHECKPOINT_ROOT = (
-    RELEASES_ROOT.parent
-    / "attempt6-third-state-checkpoints-v1"
-    / "2b2f1affaa383d922a6dfef96a666b181e3ab9af4eb8d2339fbf97cf2fcb7831"
-)
-CHECKPOINT_MANIFEST_SHA256 = (
-    "be6f48094d1f2dab83213abdfa8c75221f967d7e60f4271d513f270466c6cb54"
-)
 OLD_CONTROLLER_RELEASE = (
     "7ebc81cf25d047c49f4555c85e1e6b90db66cfef8c25e47904b56ec2146bd4fc"
+)
+CURRENT_CONTROLLER_RELEASE = (
+    "b78ef052c838dc896f98cb9ef8d2a0c96ae55b2d1146ede39d8e8753a976aa69"
 )
 OLD_UNIT_SHA256 = "0cd6edb71096a7e9ceccc996e912e5d0836c871053e88f47e9611e918351ed76"
 UNIT_PATH = Path("/etc/systemd/system/myuna-telegram-owner-r5-resume.service")
 UNIT_TEMPLATE = "myuna-telegram-owner-r5-resume.service.in"
 CUTOVER_MEMBER = "phase_f_owner_adjudicated_one_time_cutover_v1.py"
 BUILDER_MEMBER = "source-authority/build_telegram_r5_controller_release_v1.py"
-CHECKPOINT_SCHEMA = "myuna.phase-f.attempt6-third-state-checkpoint.v1"
-FILE_IDENTITY_SCHEMA = "myuna.phase-f.file-continuity.v1"
 R5_SERVICE = "myuna-telegram-owner-r5-resume.service"
 CORE_SERVICE = "myuna-core@qq.service"
 RUNTIME_SERVICE = "myuna-telegram-owner-runtime-dev.service"
 RUNTIME_SOCKET = "myuna-telegram-owner-runtime-dev.socket"
 SERVICES = (R5_SERVICE, RUNTIME_SERVICE, RUNTIME_SOCKET, CORE_SERVICE)
+ROLE_ORDER = (
+    ("/etc/myuna/core-release-selector/qq.binding.json", "core_binding_selector"),
+    ("/etc/systemd/system/myuna-core@qq.service.d/10-core-release-selector-v1.conf", "core_release_selector_dropin"),
+    ("/etc/systemd/system/myuna-core@qq.service.d/zzzzzzzzz-p07-hybrid-external-v1.conf", "core_provider_gate_dropin"),
+    ("/etc/systemd/system/myuna-core@qq.service.d/90-p07-owner-private-memory-v1.conf", "core_memory_dropin"),
+    ("/etc/myuna-telegram-gateway/r5-resume-v1.json", "telegram_runtime_config"),
+    ("/etc/systemd/system/myuna-telegram-owner-runtime-dev.service.d/zzzzzzzzzzz-p07-hybrid-external-v1.conf", "telegram_runtime_dropin"),
+    ("/etc/myuna-telegram-gateway/p07-owner-private-memory-selector-v4.json", "memory_selector_v4"),
+)
 ARCHIVE_NAME = "myuna-astrbot-telegram-dev.pre-source-command-20260826T045000Z"
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
@@ -256,7 +258,7 @@ def _render_unit(
 
 
 @dataclass(frozen=True)
-class CheckpointMember:
+class SealedMember:
     path: Path
     payload: bytes
     mode: int
@@ -279,7 +281,8 @@ class Preflight:
     new_unit: bytes
     old_unit: bytes
     authority: Mapping[str, object]
-    checkpoint: tuple[CheckpointMember, ...]
+    current: tuple[SealedMember, ...]
+    target_members: tuple[SealedMember, ...]
     target: boot.PhaseFContainerProjection | None
     archive: boot.PhaseFContainerProjection
     network: boot.PhaseFNetworkProjection
@@ -287,13 +290,13 @@ class Preflight:
 
 class Effects(Protocol):
     def preflight(self, mode: str) -> Preflight: ...
+    def write_member(self, member: SealedMember) -> None: ...
     def write_new_unit(self, state: Preflight) -> None: ...
     def daemon_reload(self) -> None: ...
     def start_service(self, unit: str) -> None: ...
     def start_target(self, state: Preflight) -> None: ...
     def stop_service(self, unit: str) -> None: ...
     def stop_target(self, state: Preflight) -> None: ...
-    def restore_member(self, member: CheckpointMember) -> None: ...
     def restore_old_unit(self, state: Preflight) -> None: ...
     def restore_old_container(self, state: Preflight) -> None: ...
     def verify_new_running(self, state: Preflight) -> None: ...
@@ -340,6 +343,45 @@ def _external_release_document(
     return document
 
 
+def _sealed_members(authority: Mapping[str, object]) -> tuple[SealedMember, ...]:
+    """Decode the complete builder-sealed seven-role projection in literal order."""
+
+    files = authority.get("files")
+    _require(
+        type(files) is dict and set(files) == {path for path, _role in ROLE_ORDER},
+        "seven_role_authority_rejected",
+    )
+    result: list[SealedMember] = []
+    for path, role in ROLE_ORDER:
+        row = files[path]
+        _require(type(row) is dict and row.get("role") == role, "seven_role_authority_rejected")
+        try:
+            payload = base64.b64decode(str(row["payload_b64"]), validate=True)
+            mode = int(str(row["mode"]), 8)
+            uid = row["uid"]
+            gid = row["gid"]
+        except (KeyError, TypeError, ValueError) as exc:
+            raise CutoverRejected("seven_role_authority_rejected") from exc
+        _require(
+            type(uid) is int
+            and type(gid) is int
+            and uid >= 0
+            and gid >= 0
+            and str(row["mode"]) == f"{mode:04o}"
+            and _DIGEST.fullmatch(str(row.get("payload_sha256"))) is not None
+            and sha256(payload).hexdigest() == row["payload_sha256"],
+            "seven_role_authority_rejected",
+        )
+        result.append(SealedMember(Path(path), payload, mode, uid, gid, role))
+    _require(
+        len(result) == 7
+        and len({member.path for member in result}) == 7
+        and len({member.role for member in result}) == 7,
+        "seven_role_authority_rejected",
+    )
+    return tuple(result)
+
+
 class HostEffects:
     """Exact host effects.  Tests replace this object; source tests never call it."""
 
@@ -347,7 +389,16 @@ class HostEffects:
         self._builder = None
         self._selection = selection
 
-    def _load_release(self) -> tuple[Path, Mapping[str, object], bytes, bytes]:
+    def _load_release(
+        self,
+    ) -> tuple[
+        Path,
+        Mapping[str, object],
+        tuple[SealedMember, ...],
+        tuple[SealedMember, ...],
+        bytes,
+        bytes,
+    ]:
         release_root = Path(__file__).resolve().parent
         _require(release_root.parent == RELEASES_ROOT and _DIGEST.fullmatch(release_root.name) is not None, "release_path_rejected")
         external_document = _external_release_document(release_root, self._selection)
@@ -365,8 +416,15 @@ class HostEffects:
         )
         expected = builder.expected_controller_authority(RELEASES_ROOT, release_root.name)
         _require(builder.verify_release(RELEASES_ROOT, release_root.name, expected), "release_verification_rejected")
-        old_expected = builder.expected_controller_authority(RELEASES_ROOT, OLD_CONTROLLER_RELEASE)
-        _require(builder.verify_release(RELEASES_ROOT, OLD_CONTROLLER_RELEASE, old_expected), "old_release_verification_rejected")
+        old_document, _old_authority = builder._fixed_historical_authority(
+            RELEASES_ROOT / OLD_CONTROLLER_RELEASE
+        )
+        _current_document, current_authority = builder._fixed_historical_authority(
+            RELEASES_ROOT / CURRENT_CONTROLLER_RELEASE
+        )
+        old_expected = builder._expected(old_document, OLD_CONTROLLER_RELEASE)
+        current_members = _sealed_members(current_authority)
+        target_members = _sealed_members(authority)
         new_unit = _render_unit(
             release_root,
             expected,
@@ -375,94 +433,49 @@ class HostEffects:
         )
         old_unit = _render_unit(RELEASES_ROOT / OLD_CONTROLLER_RELEASE, old_expected, guard=False)
         _require(sha256(old_unit).hexdigest() == OLD_UNIT_SHA256, "old_unit_authority_rejected")
-        return release_root, authority, new_unit, old_unit
-
-    def _checkpoint(self) -> tuple[CheckpointMember, ...]:
-        root = CHECKPOINT_ROOT
-        metadata = root.lstat()
-        _require(stat.S_ISDIR(metadata.st_mode) and not root.is_symlink() and stat.S_IMODE(metadata.st_mode) == 0o700 and metadata.st_uid == 0, "checkpoint_root_rejected")
-        payload = _read_regular(root / "MANIFEST.json", mode=0o400, uid=0)
-        _require(sha256(payload).hexdigest() == CHECKPOINT_MANIFEST_SHA256 and payload.endswith(b"\n") and b"\r" not in payload, "checkpoint_manifest_rejected")
-        try:
-            document = json.loads(payload.decode("ascii"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise CutoverRejected("checkpoint_manifest_rejected") from exc
-        fence = document.get("attempt_fence")
-        _require(
-            document.get("schema") == CHECKPOINT_SCHEMA
-            and document.get("checkpoint_sha256") == root.name
-            and document.get("rollback_only") is True
-            and document.get("target_truth_from_checkpoint") is False
-            and type(fence) is dict
-            and fence.get("attempt5_immutable") is True
-            and fence.get("attempt6_created") is False
-            and fence.get("attempt7_allowed") is False
-            and fence.get("one_shot") is True,
-            "checkpoint_contract_rejected",
+        return (
+            release_root,
+            authority,
+            current_members,
+            target_members,
+            new_unit,
+            old_unit,
         )
-        rows = document.get("members")
-        order = document.get("member_order")
-        _require(type(rows) is list and len(rows) == 7 and order == [row.get("member") for row in rows], "checkpoint_members_rejected")
-        result: list[CheckpointMember] = []
-        for index, row in enumerate(rows):
-            _require(
-                type(row) is dict
-                and row.get("index") == index
-                and row.get("prestate_identity_schema") == FILE_IDENTITY_SCHEMA
-                and _DIGEST.fullmatch(str(row.get("prestate_identity_sha256"))) is not None,
-                "checkpoint_member_rejected",
-            )
-            member_path = root / str(row["member"])
-            member_payload = _read_regular(member_path, mode=0o400, uid=0)
-            _require(len(member_payload) == row.get("size") and sha256(member_payload).hexdigest() == row.get("sha256"), "checkpoint_member_rejected")
-            result.append(
-                CheckpointMember(
-                    path=Path(str(row["path_category"])),
-                    payload=member_payload,
-                    mode=int(str(row["mode"]), 8),
-                    uid=int(row["uid"]),
-                    gid=int(row["gid"]),
-                    role=str(row["role"]),
-                )
-            )
-        _require(len({item.path for item in result}) == 7 and len({item.role for item in result}) == 7, "checkpoint_members_rejected")
-        actual = {item.name for item in root.iterdir()}
-        _require(actual == {"MANIFEST.json", *[str(row["member"]) for row in rows]}, "checkpoint_member_set_rejected")
-        return tuple(result)
 
     @staticmethod
     def _service_state(unit: str) -> str:
         return boot.run(["/usr/bin/systemctl", "is-active", unit], check=False)
 
+    @staticmethod
+    def _member_projection(member: SealedMember) -> dict[str, object]:
+        return {
+            "gid": member.gid,
+            "mode": f"{member.mode:04o}",
+            "sha256": sha256(member.payload).hexdigest(),
+            "size": len(member.payload),
+            "uid": member.uid,
+        }
+
     def preflight(self, mode: str) -> Preflight:
-        release_root, authority, new_unit, old_unit = self._load_release()
-        checkpoint = self._checkpoint()
-        files = authority.get("files")
-        _require(type(files) is dict and set(files) == {item.path.as_posix() for item in checkpoint}, "seven_role_authority_rejected")
+        (
+            release_root,
+            authority,
+            current,
+            target_members,
+            new_unit,
+            old_unit,
+        ) = self._load_release()
         target_matches = []
-        old_matches = []
-        for member in checkpoint:
-            observed = _file_projection(member.path)
-            target = files[member.path.as_posix()]
-            _require(target.get("role") == member.role, "seven_role_authority_rejected")
-            target_matches.append(
-                observed == {
-                    "gid": target["gid"],
-                    "mode": str(target["mode"]),
-                    "sha256": target["payload_sha256"],
-                    "size": len(base64.b64decode(target["payload_b64"], validate=True)),
-                    "uid": target["uid"],
-                }
+        current_matches = []
+        for current_member, target_member in zip(current, target_members, strict=True):
+            _require(
+                current_member.path == target_member.path
+                and current_member.role == target_member.role,
+                "seven_role_authority_rejected",
             )
-            old_matches.append(
-                observed == {
-                    "gid": member.gid,
-                    "mode": f"{member.mode:04o}",
-                    "sha256": sha256(member.payload).hexdigest(),
-                    "size": len(member.payload),
-                    "uid": member.uid,
-                }
-            )
+            observed = _file_projection(current_member.path)
+            current_matches.append(observed == self._member_projection(current_member))
+            target_matches.append(observed == self._member_projection(target_member))
         unit_sha = sha256(_read_regular(UNIT_PATH, mode=0o644, uid=0)).hexdigest()
         target = boot.phase_f_container_projection(boot.CONTAINER)
         archive = boot.phase_f_container_projection(ARCHIVE_NAME)
@@ -472,11 +485,14 @@ class HostEffects:
         expected_archive = boot.PhaseFContainerProjection(**_ARCHIVE_CONTAINER)
         expected_network = boot.PhaseFNetworkProjection(**_NETWORK)
         if mode in {"preflight", "cutover"}:
-            _require(all(target_matches) and unit_sha == OLD_UNIT_SHA256, "cutover_file_prestate_rejected")
+            _require(all(current_matches) and unit_sha == OLD_UNIT_SHA256, "cutover_file_prestate_rejected")
             _require(target == expected_target and archive == expected_archive and network == expected_network, "cutover_container_prestate_rejected")
             _require(all(self._service_state(unit) in {"inactive", "failed"} for unit in SERVICES), "cutover_service_prestate_rejected")
         elif mode == "rollback":
-            _require(all(new or old for new, old in zip(target_matches, old_matches, strict=True)), "rollback_file_prestate_rejected")
+            _require(
+                all(current_match or target_match for current_match, target_match in zip(current_matches, target_matches, strict=True)),
+                "rollback_file_prestate_rejected",
+            )
             _require(unit_sha in {OLD_UNIT_SHA256, sha256(new_unit).hexdigest()}, "rollback_unit_prestate_rejected")
             _require(
                 archive == expected_archive
@@ -510,7 +526,8 @@ class HostEffects:
             new_unit,
             old_unit,
             authority,
-            checkpoint,
+            current,
+            target_members,
             target,
             archive,
             expected_network,
@@ -549,18 +566,11 @@ class HostEffects:
             return
         boot.phase_f_stop_container_exact(observed, name=boot.CONTAINER)
 
-    def restore_member(self, member: CheckpointMember) -> None:
+    def write_member(self, member: SealedMember) -> None:
         _atomic_file(member.path, member.payload, mode=member.mode, uid=member.uid, gid=member.gid)
         _require(
-            _file_projection(member.path)
-            == {
-                "gid": member.gid,
-                "mode": f"{member.mode:04o}",
-                "sha256": sha256(member.payload).hexdigest(),
-                "size": len(member.payload),
-                "uid": member.uid,
-            },
-            "rollback_member_poststate_rejected",
+            _file_projection(member.path) == self._member_projection(member),
+            "sealed_member_poststate_rejected",
         )
 
     def restore_old_unit(self, state: Preflight) -> None:
@@ -595,6 +605,9 @@ def execute(mode: str, effects: Effects) -> dict[str, object]:
     if mode == "cutover":
         boundary = "preflight"
         try:
+            for member in state.target_members:
+                boundary = f"materialize:{member.role}"
+                effects.write_member(member)
             boundary = "unit"
             effects.write_new_unit(state)
             boundary = "daemon_reload"
@@ -634,9 +647,9 @@ def execute(mode: str, effects: Effects) -> dict[str, object]:
                 effects.stop_service(unit)
             boundary = "stop:target_container"
             effects.stop_target(state)
-            for member in state.checkpoint:
+            for member in state.current:
                 boundary = f"restore:{member.role}"
-                effects.restore_member(member)
+                effects.write_member(member)
             boundary = "restore:old_unit"
             effects.restore_old_unit(state)
             boundary = "daemon_reload"

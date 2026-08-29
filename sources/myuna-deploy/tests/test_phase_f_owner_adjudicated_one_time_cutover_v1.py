@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import ast
-from contextlib import nullcontext, redirect_stdout
+from contextlib import ExitStack, nullcontext, redirect_stdout
 from hashlib import sha256
 import importlib.util
 import io
@@ -27,16 +27,27 @@ SPEC.loader.exec_module(module)
 
 
 def synthetic_state(seed: int = 11) -> module.Preflight:
-    members = tuple(
-        module.CheckpointMember(
+    current = tuple(
+        module.SealedMember(
             path=Path(f"/synthetic/file-{index}"),
-            payload=f"old:{seed}:{index}\n".encode("ascii"),
+            payload=f"current:{seed}:{index}\n".encode("ascii"),
             mode=0o640 if index < 3 else 0o644,
             uid=0,
             gid=index,
             role=f"role-{index}",
         )
         for index in range(7)
+    )
+    target_members = tuple(
+        module.SealedMember(
+            path=member.path,
+            payload=f"target:{seed}:{index}\n".encode("ascii"),
+            mode=member.mode,
+            uid=member.uid,
+            gid=member.gid,
+            role=member.role,
+        )
+        for index, member in enumerate(current)
     )
     target = module.boot.PhaseFContainerProjection(**module._TARGET_CONTAINER)
     archive = module.boot.PhaseFContainerProjection(**module._ARCHIVE_CONTAINER)
@@ -46,7 +57,8 @@ def synthetic_state(seed: int = 11) -> module.Preflight:
         new_unit=f"new-unit:{seed}\n".encode("ascii"),
         old_unit=f"old-unit:{seed}\n".encode("ascii"),
         authority={"seed": seed},
-        checkpoint=members,
+        current=current,
+        target_members=target_members,
         target=target,
         archive=archive,
         network=network,
@@ -95,8 +107,9 @@ class FakeEffects:
     def stop_target(self, _state: module.Preflight) -> None:
         self._call("stop_target")
 
-    def restore_member(self, member: module.CheckpointMember) -> None:
-        self._call(f"restore_member:{member.role}")
+    def write_member(self, member: module.SealedMember) -> None:
+        kind = "target" if member.payload.startswith(b"target:") else "current"
+        self._call(f"write_member:{kind}:{member.role}")
 
     def restore_old_unit(self, _state: module.Preflight) -> None:
         self._call("restore_old_unit")
@@ -201,23 +214,13 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
     def test_host_effects_explicit_rollback_admits_remove_before_rename_partial(self) -> None:
         synthetic = synthetic_state()
         old_sha = sha256(synthetic.old_unit).hexdigest()
-        files = {}
         observed = {}
-        for member in synthetic.checkpoint:
-            payload = b"new:" + member.payload
-            files[member.path.as_posix()] = {
-                "gid": member.gid,
-                "mode": f"{member.mode:04o}",
-                "payload_b64": module.base64.b64encode(payload).decode("ascii"),
-                "payload_sha256": sha256(payload).hexdigest(),
-                "role": member.role,
-                "uid": member.uid,
-            }
+        for member in synthetic.target_members:
             observed[member.path] = {
                 "gid": member.gid,
                 "mode": f"{member.mode:04o}",
-                "sha256": sha256(payload).hexdigest(),
-                "size": len(payload),
+                "sha256": sha256(member.payload).hexdigest(),
+                "size": len(member.payload),
                 "uid": member.uid,
             }
         selection = module.ReleaseSelection("a" * 40, "b" * 40, "c" * 64, "d" * 64)
@@ -227,8 +230,18 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
             module.ARCHIVE_NAME: synthetic.archive,
         }
         with (
-            mock.patch.object(effects, "_load_release", return_value=(synthetic.release_root, {"files": files}, synthetic.new_unit, synthetic.old_unit)),
-            mock.patch.object(effects, "_checkpoint", return_value=synthetic.checkpoint),
+            mock.patch.object(
+                effects,
+                "_load_release",
+                return_value=(
+                    synthetic.release_root,
+                    synthetic.authority,
+                    synthetic.current,
+                    synthetic.target_members,
+                    synthetic.new_unit,
+                    synthetic.old_unit,
+                ),
+            ),
             mock.patch.object(module, "_file_projection", side_effect=lambda path: observed[path]),
             mock.patch.object(module, "_read_regular", return_value=synthetic.old_unit),
             mock.patch.object(module, "OLD_UNIT_SHA256", old_sha),
@@ -238,7 +251,7 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
         ):
             partial = effects.preflight("rollback")
             self.assertIsNone(partial.target)
-            with self.assertRaisesRegex(module.CutoverRejected, "cutover_container_prestate_rejected"):
+            with self.assertRaisesRegex(module.CutoverRejected, "cutover_file_prestate_rejected"):
                 effects.preflight("cutover")
         with (
             mock.patch.object(module.boot, "phase_f_container_projection", return_value=None),
@@ -267,7 +280,7 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
             mock.patch.object(effects, "preflight", return_value=partial),
             mock.patch.object(effects, "stop_service"),
             mock.patch.object(effects, "stop_target"),
-            mock.patch.object(effects, "restore_member"),
+            mock.patch.object(effects, "write_member"),
             mock.patch.object(effects, "restore_old_unit"),
             mock.patch.object(effects, "daemon_reload"),
             mock.patch.object(
@@ -282,6 +295,150 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
         self.assertEqual(raised.exception.kind, "rollback_manual_required")
         self.assertEqual(raised.exception.boundary, "restore:old_container")
         self.assertEqual(raised.exception.effect_code, "lost_return")
+
+    def test_forward_requires_seven_current_and_rollback_admits_all_128_mixtures(self) -> None:
+        synthetic = synthetic_state()
+        old_sha = sha256(synthetic.old_unit).hexdigest()
+        selection = module.ReleaseSelection("a" * 40, "b" * 40, "c" * 64, "d" * 64)
+        effects = module.HostEffects(selection)
+        projections = {
+            module.boot.CONTAINER: synthetic.target,
+            module.ARCHIVE_NAME: synthetic.archive,
+        }
+
+        def projection(member: module.SealedMember) -> dict[str, object]:
+            return {
+                "gid": member.gid,
+                "mode": f"{member.mode:04o}",
+                "sha256": sha256(member.payload).hexdigest(),
+                "size": len(member.payload),
+                "uid": member.uid,
+            }
+
+        def preflight(observed: dict[Path, dict[str, object]], mode: str) -> module.Preflight:
+            with ExitStack() as stack:
+                stack.enter_context(
+                    mock.patch.object(
+                        effects,
+                        "_load_release",
+                        return_value=(
+                            synthetic.release_root,
+                            synthetic.authority,
+                            synthetic.current,
+                            synthetic.target_members,
+                            synthetic.new_unit,
+                            synthetic.old_unit,
+                        ),
+                    )
+                )
+                stack.enter_context(mock.patch.object(module, "_read_regular", return_value=synthetic.old_unit))
+                stack.enter_context(mock.patch.object(module, "OLD_UNIT_SHA256", old_sha))
+                stack.enter_context(
+                    mock.patch.object(
+                        module.boot,
+                        "phase_f_container_projection",
+                        side_effect=lambda name: projections[name],
+                    )
+                )
+                stack.enter_context(mock.patch.object(module.boot, "phase_f_network_projection", return_value=synthetic.network))
+                stack.enter_context(mock.patch.object(effects, "_service_state", return_value="inactive"))
+                stack.enter_context(mock.patch.object(module, "_file_projection", side_effect=lambda path: observed[path]))
+                return effects.preflight(mode)
+
+        for mask in range(128):
+            observed = {
+                current.path: projection(
+                    target if mask & (1 << index) else current
+                )
+                for index, (current, target) in enumerate(
+                    zip(synthetic.current, synthetic.target_members, strict=True)
+                )
+            }
+            with self.subTest(mask=mask):
+                self.assertEqual(len(preflight(observed, "rollback").current), 7)
+                if mask == 0:
+                    self.assertEqual(len(preflight(observed, "cutover").target_members), 7)
+                else:
+                    with self.assertRaisesRegex(
+                        module.CutoverRejected, "cutover_file_prestate_rejected"
+                    ):
+                        preflight(observed, "cutover")
+
+        third = {member.path: projection(member) for member in synthetic.current}
+        third[synthetic.current[3].path] = {**third[synthetic.current[3].path], "sha256": "f" * 64}
+        with self.assertRaisesRegex(
+            module.CutoverRejected, "rollback_file_prestate_rejected"
+        ):
+            preflight(third, "rollback")
+
+    def test_per_role_atomic_fault_and_lost_return_matrix_is_single_dispatch(self) -> None:
+        stages = (
+            "before",
+            "write",
+            "chmod",
+            "chown",
+            "file_fsync",
+            "rename",
+            "rename_lost_return",
+            "dir_fsync_lost_return",
+        )
+        real_write = module.os.write
+        real_fsync = module.os.fsync
+        real_replace = module.os.replace
+        for role_index, (_path, role) in enumerate(module.ROLE_ORDER):
+            for stage in stages:
+                with self.subTest(role=role, stage=stage), tempfile.TemporaryDirectory() as temporary:
+                    path = Path(temporary) / f"member-{role_index}"
+                    old = f"current:{role_index}\n".encode("ascii")
+                    new = f"target:{role_index}\n".encode("ascii")
+                    path.write_bytes(old)
+                    path.chmod(0o640)
+                    member = module.SealedMember(path, new, 0o640, 0, 0, role)
+                    calls = {"write": 0, "replace": 0, "fsync": 0}
+
+                    def partial_write(descriptor: int, payload: memoryview) -> int:
+                        calls["write"] += 1
+                        if calls["write"] == 1:
+                            return real_write(descriptor, payload[: max(1, len(payload) // 2)])
+                        raise OSError("synthetic-write")
+
+                    def replace_then_raise(source: Path, destination: Path) -> None:
+                        calls["replace"] += 1
+                        real_replace(source, destination)
+                        raise OSError("synthetic-lost-rename-return")
+
+                    def dir_fsync_then_raise(descriptor: int) -> None:
+                        calls["fsync"] += 1
+                        real_fsync(descriptor)
+                        if calls["fsync"] == 2:
+                            raise OSError("synthetic-lost-dir-fsync-return")
+
+                    with ExitStack() as stack:
+                        if stage == "before":
+                            stack.enter_context(mock.patch.object(module.tempfile, "mkstemp", side_effect=OSError("synthetic-before")))
+                        elif stage == "write":
+                            stack.enter_context(mock.patch.object(module.os, "write", side_effect=partial_write))
+                        elif stage == "chmod":
+                            stack.enter_context(mock.patch.object(module.os, "fchmod", side_effect=OSError("synthetic-chmod")))
+                        elif stage == "chown":
+                            stack.enter_context(mock.patch.object(module.os, "fchown", side_effect=OSError("synthetic-chown")))
+                        else:
+                            stack.enter_context(mock.patch.object(module.os, "fchown", return_value=None))
+                            if stage == "file_fsync":
+                                stack.enter_context(mock.patch.object(module.os, "fsync", side_effect=OSError("synthetic-file-fsync")))
+                            elif stage == "rename":
+                                stack.enter_context(mock.patch.object(module.os, "replace", side_effect=OSError("synthetic-rename")))
+                            elif stage == "rename_lost_return":
+                                stack.enter_context(mock.patch.object(module.os, "replace", side_effect=replace_then_raise))
+                            elif stage == "dir_fsync_lost_return":
+                                stack.enter_context(mock.patch.object(module.os, "fsync", side_effect=dir_fsync_then_raise))
+                        with self.assertRaises(OSError):
+                            module._atomic_file(path, member.payload, mode=member.mode, uid=member.uid, gid=member.gid)
+
+                    self.assertLessEqual(calls["replace"], 1)
+                    expected = new if stage in {"rename_lost_return", "dir_fsync_lost_return"} else old
+                    self.assertEqual(path.read_bytes(), expected)
+                    self.assertEqual(list(path.parent.glob(".phase-f-cutover-*")), [])
 
     def test_finite_modes_have_no_semantic_success_or_persistent_state(self) -> None:
         preflight = module.execute("preflight", FakeEffects())
@@ -301,6 +458,7 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
 
     def test_cutover_fault_matrix_stops_before_later_forward_effects(self) -> None:
         forward = (
+            *[f"write_member:target:role-{index}" for index in range(7)],
             "write_new_unit",
             "daemon_reload",
             f"start_service:{module.CORE_SERVICE}",
@@ -325,8 +483,8 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
         module.execute("rollback", effects)
         boundaries = tuple(effects.calls[1:])
         self.assertEqual(
-            [name for name in boundaries if name.startswith("restore_member:")],
-            [f"restore_member:role-{index}" for index in range(7)],
+            [name for name in boundaries if name.startswith("write_member:current:")],
+            [f"write_member:current:role-{index}" for index in range(7)],
         )
         for boundary in boundaries:
             with self.subTest(boundary=boundary):
@@ -342,7 +500,7 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
             "source",
             "public_source",
             "release",
-            "checkpoint",
+            "current_authority",
             "selector",
             "unit",
             "config",
@@ -386,6 +544,14 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
             self.assertEqual(first.calls, second.calls)
             observations.append((first_result, first.calls))
         self.assertEqual(observations[0], observations[1])
+        calls = observations[0][1]
+        self.assertEqual(
+            calls[1:8],
+            [f"write_member:target:role-{index}" for index in range(7)],
+        )
+        self.assertLess(calls.index("write_member:target:role-6"), calls.index("write_new_unit"))
+        self.assertLess(calls.index("write_new_unit"), calls.index("daemon_reload"))
+        self.assertEqual(calls.count("daemon_reload"), 1)
 
     def test_exact_old_and_new_convergence_are_terminal_oracles_only(self) -> None:
         cutover = FakeEffects()
@@ -416,6 +582,13 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, imports)
         text = MODULE_PATH.read_text("utf-8")
+        for retired_authority in (
+            "CHECKPOINT_ROOT",
+            "CHECKPOINT_MANIFEST_SHA256",
+            "CHECKPOINT_SCHEMA",
+            "_checkpoint(",
+        ):
+            self.assertNotIn(retired_authority, text)
         for forbidden_call in (
             "fixed_owner_entry(",
             "run_checkpointed_stage(",
@@ -423,23 +596,31 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden_call, text)
 
-    def test_fixed_identity_constants_and_checkpoint_members_are_unique(self) -> None:
+    def test_fixed_identity_constants_and_sealed_members_are_unique(self) -> None:
         self.assertEqual(
             module.EXPECTED_DEPLOY_PARENT,
-            "c172aad62030bdd8f319ae394afe9665c936eb7d",
+            "54c45bf791e655a72d0b087756fed49da0e45fed",
         )
         self.assertEqual(len(module._TARGET_CONTAINER["container_id"]), 64)
         self.assertNotEqual(
             module._TARGET_CONTAINER["container_id"],
             module._ARCHIVE_CONTAINER["container_id"],
         )
+        self.assertEqual(
+            module.CURRENT_CONTROLLER_RELEASE,
+            "b78ef052c838dc896f98cb9ef8d2a0c96ae55b2d1146ede39d8e8753a976aa69",
+        )
+        self.assertEqual(len(module.ROLE_ORDER), 7)
+        self.assertEqual(len({path for path, _role in module.ROLE_ORDER}), 7)
+        self.assertEqual(len({role for _path, role in module.ROLE_ORDER}), 7)
         for seed in (11, 29):
             state = synthetic_state(seed)
-            self.assertEqual(len(state.checkpoint), 7)
-            self.assertEqual(len({member.path for member in state.checkpoint}), 7)
-            self.assertEqual(len({member.role for member in state.checkpoint}), 7)
+            self.assertEqual(len(state.current), 7)
+            self.assertEqual(len(state.target_members), 7)
+            self.assertEqual(len({member.path for member in state.current}), 7)
+            self.assertEqual(len({member.role for member in state.current}), 7)
             self.assertEqual(
-                len({sha256(member.payload).hexdigest() for member in state.checkpoint}),
+                len({sha256(member.payload).hexdigest() for member in state.current}),
                 7,
             )
 

@@ -31,7 +31,7 @@ GATEWAY_BUILDER = "scripts/build_telegram_gateway_release_v1.py"
 CONTROLLER_BUILDER = "scripts/build_telegram_r5_controller_release_v1.py"
 CUTOVER_COMMAND = "scripts/phase_f_owner_adjudicated_one_time_cutover_v1.py"
 CUTOVER_ACCEPTED_DEPLOY_PARENT = (
-    "c172aad62030bdd8f319ae394afe9665c936eb7d"
+    "54c45bf791e655a72d0b087756fed49da0e45fed"
 )
 RENDER_HELPER = "scripts/activate_p07_hybrid_external_generation_v1.py"
 DIARY_HELPER = "scripts/p07_owner_day_diary_v2.py"
@@ -464,31 +464,53 @@ def _orchestrate_product(
     return authority, payloads
 
 
-def _historical_baseline_authority(
+def _fixed_historical_authority(
     release_root: Path,
 ) -> tuple[dict[str, object], dict[str, object]]:
+    """Verify one of the two literal, source-owned pre-cutover authorities."""
+
+    accepted = {
+        product.R5_DURABILITY_BASELINE_CONTROLLER_RELEASE: {
+            "core_commit": product.R5_DURABILITY_BASELINE_CORE_COMMIT,
+            "core_tree": product.R5_DURABILITY_BASELINE_CORE_TREE,
+            "deploy_commit": product.R5_DURABILITY_BASELINE_DEPLOY_COMMIT,
+            "deploy_parent": product.R5_DURABILITY_BASELINE_DEPLOY_PARENT,
+            "deploy_tree": product.R5_DURABILITY_BASELINE_DEPLOY_TREE,
+        },
+        product.ATTEMPT5_PRODUCT_CONTROLLER_RELEASE: {
+            "core_commit": product.ATTEMPT5_PRODUCT_CORE_COMMIT,
+            "core_tree": product.ATTEMPT5_PRODUCT_CORE_TREE,
+            "deploy_commit": product.ATTEMPT5_PRODUCT_DEPLOY_COMMIT,
+            "deploy_parent": product.ATTEMPT5_PRODUCT_DEPLOY_PARENT,
+            "deploy_tree": product.ATTEMPT5_PRODUCT_DEPLOY_TREE,
+        },
+    }
+    expected_source = accepted.get(release_root.name)
     _require(
-        release_root.name == product.R5_DURABILITY_BASELINE_CONTROLLER_RELEASE,
-        "r5_durability_baseline_release_rejected",
+        expected_source is not None
+        and release_root.parent == Path("/opt/myuna/telegram-r5/releases")
+        and release_root.is_dir()
+        and not release_root.is_symlink(),
+        "fixed_historical_release_rejected",
     )
     try:
-        document, _manifest = boot._controller_manifest(release_root)
-    except (OSError, boot.ResumeRejected) as exc:
+        manifest_payload = (release_root / "MANIFEST.json").read_bytes()
+        document = json.loads(manifest_payload.decode("ascii"))
+        reopened, _manifest = boot._controller_manifest(release_root)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, boot.ResumeRejected) as exc:
         raise TelegramR5ControllerReleaseRejected(
-            "r5_durability_baseline_release_rejected"
+            "fixed_historical_release_rejected"
         ) from exc
+    fixed_document = document.get("fixed_product_authority") if type(document) is dict else None
     _require(
-        document.get("deploy_commit")
-        == product.R5_DURABILITY_BASELINE_DEPLOY_COMMIT
-        and document.get("deploy_parent")
-        == product.R5_DURABILITY_BASELINE_DEPLOY_PARENT
-        and document.get("deploy_tree")
-        == product.R5_DURABILITY_BASELINE_DEPLOY_TREE
-        and document.get("core_commit")
-        == product.R5_DURABILITY_BASELINE_CORE_COMMIT
-        and document.get("core_tree")
-        == product.R5_DURABILITY_BASELINE_CORE_TREE,
-        "r5_durability_baseline_source_rejected",
+        type(document) is dict
+        and type(fixed_document) is dict
+        and manifest_payload == _canonical(document)
+        and sha256(manifest_payload).hexdigest() == release_root.name
+        and reopened == document
+        and fixed_document.get("source") == expected_source
+        and all(document.get(key) == value for key, value in expected_source.items()),
+        "fixed_historical_source_rejected",
     )
     prior_path = release_root / "p07_owner_private_memory_production_plan.py"
     prior_spec = importlib.util.spec_from_file_location(
@@ -497,7 +519,7 @@ def _historical_baseline_authority(
     )
     _require(
         prior_spec is not None and prior_spec.loader is not None,
-        "r5_durability_baseline_release_rejected",
+        "fixed_historical_release_rejected",
     )
     prior_product = importlib.util.module_from_spec(prior_spec)
     current_product = sys.modules.get("p07_owner_private_memory_production_plan")
@@ -510,7 +532,7 @@ def _historical_baseline_authority(
         )
     except (OSError, ImportError, AttributeError, boot.ResumeRejected) as exc:
         raise TelegramR5ControllerReleaseRejected(
-            "r5_durability_baseline_release_rejected"
+            "fixed_historical_release_rejected"
         ) from exc
     finally:
         if current_product is None:
@@ -518,9 +540,8 @@ def _historical_baseline_authority(
         else:
             sys.modules["p07_owner_private_memory_production_plan"] = current_product
     _require(
-        verified.get("release_sha256")
-        == product.R5_DURABILITY_BASELINE_CONTROLLER_RELEASE,
-        "r5_durability_baseline_release_rejected",
+        verified.get("release_sha256") == release_root.name,
+        "fixed_historical_release_rejected",
     )
     fixed = {
         key: verified[key]
@@ -535,6 +556,11 @@ def _historical_baseline_authority(
             "source",
         )
     }
+    _require(
+        fixed == document.get("fixed_product_authority")
+        and fixed.get("source") == expected_source,
+        "fixed_historical_authority_rejected",
+    )
     return document, fixed
 
 
@@ -566,7 +592,7 @@ def _orchestrate_r5_durability(
             len(row) >= 4 and row[2] == expected,
             "upstream_builder_identity_rejected",
         )
-    baseline_document, baseline = _historical_baseline_authority(
+    baseline_document, baseline = _fixed_historical_authority(
         baseline_release_root
     )
     search = (deploy_root / "scripts", core_root / "src")

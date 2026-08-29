@@ -18,7 +18,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 CORE = Path("/srv/myuna/repos/core")
 sys.path.insert(0, (ROOT / "scripts").as_posix())
-ACCEPTED_PARENT = "c172aad62030bdd8f319ae394afe9665c936eb7d"
+ACCEPTED_PARENT = "54c45bf791e655a72d0b087756fed49da0e45fed"
 CORE_COMMIT = "4c13c0b20552b5d8a8720f180d0569405fed00b0"
 CONFIG_SHA256 = "e" * 64
 MODULE_PATH = ROOT / "scripts/build_telegram_r5_controller_release_v1.py"
@@ -474,23 +474,93 @@ class TelegramR5ControllerReleaseTests(unittest.TestCase):
                 )
             )
 
-    def test_exact_installed_baseline_reopens_offline_and_is_source_bound(self) -> None:
-        release = Path("/opt/myuna/telegram-r5/releases") / product.R5_DURABILITY_BASELINE_CONTROLLER_RELEASE
-        document, authority = module._historical_baseline_authority(release)
-        self.assertEqual(document["deploy_commit"], product.R5_DURABILITY_BASELINE_DEPLOY_COMMIT)
+    def test_exact_installed_old_and_current_reopen_through_one_finite_seam(self) -> None:
+        releases = Path("/opt/myuna/telegram-r5/releases")
+        cases = (
+            (
+                product.R5_DURABILITY_BASELINE_CONTROLLER_RELEASE,
+                product.R5_DURABILITY_BASELINE_DEPLOY_COMMIT,
+                product.R5_DURABILITY_BASELINE_DEPLOY_PARENT,
+                product.R5_DURABILITY_BASELINE_DEPLOY_TREE,
+            ),
+            (
+                product.ATTEMPT5_PRODUCT_CONTROLLER_RELEASE,
+                product.ATTEMPT5_PRODUCT_DEPLOY_COMMIT,
+                product.ATTEMPT5_PRODUCT_DEPLOY_PARENT,
+                product.ATTEMPT5_PRODUCT_DEPLOY_TREE,
+            ),
+        )
+        for digest, commit, parent, tree in cases:
+            with self.subTest(digest=digest):
+                document, authority = module._fixed_historical_authority(releases / digest)
+                self.assertEqual(document["deploy_commit"], commit)
+                self.assertEqual(document["deploy_parent"], parent)
+                self.assertEqual(document["deploy_tree"], tree)
+                self.assertEqual(authority, document["fixed_product_authority"])
+                self.assertEqual(authority["source"]["deploy_commit"], commit)
+                self.assertEqual(authority["source"]["deploy_parent"], parent)
+                self.assertEqual(authority["source"]["deploy_tree"], tree)
+        old_document, old_authority = module._fixed_historical_authority(
+            releases / product.R5_DURABILITY_BASELINE_CONTROLLER_RELEASE
+        )
         self.assertEqual(
-            authority["controller"]["config_sha256"],
+            old_authority["controller"]["config_sha256"],
             product.R5_DURABILITY_BASELINE_CONFIG_SHA256,
         )
         self.assertEqual(
-            authority["releases"]["plugin"]["digest"],
+            old_authority["releases"]["plugin"]["digest"],
             product.R5_DURABILITY_BASELINE_PLUGIN_RELEASE,
         )
+        self.assertEqual(old_document["fixed_product_authority"], old_authority)
         with tempfile.TemporaryDirectory() as temporary:
             substituted = Path(temporary) / product.R5_DURABILITY_BASELINE_CONTROLLER_RELEASE
             substituted.mkdir(mode=0o555)
             with self.assertRaises(module.TelegramR5ControllerReleaseRejected):
-                module._historical_baseline_authority(substituted)
+                module._fixed_historical_authority(substituted)
+        with self.assertRaises(module.TelegramR5ControllerReleaseRejected):
+            module._fixed_historical_authority(releases / ("f" * 64))
+
+    def test_finite_historical_seam_rejects_source_authority_and_environment_substitutions(self) -> None:
+        release = (
+            Path("/opt/myuna/telegram-r5/releases")
+            / product.ATTEMPT5_PRODUCT_CONTROLLER_RELEASE
+        )
+        document, authority = module._fixed_historical_authority(release)
+        wrong_source = json.loads(module._canonical(document))
+        wrong_source["deploy_parent"] = "f" * 40
+        with mock.patch.object(
+            module.boot, "_controller_manifest", return_value=(wrong_source, b"")
+        ):
+            with self.assertRaisesRegex(
+                module.TelegramR5ControllerReleaseRejected,
+                "fixed_historical_source_rejected",
+            ):
+                module._fixed_historical_authority(release)
+
+        for field in ("files", "source", "controller"):
+            substituted = json.loads(module._canonical(authority))
+            substituted[field] = {}
+            with self.subTest(field=field), mock.patch.object(
+                module.boot,
+                "verify_fixed_controller_release",
+                return_value={"release_sha256": release.name, **substituted},
+            ):
+                with self.assertRaisesRegex(
+                    module.TelegramR5ControllerReleaseRejected,
+                    "fixed_historical_authority_rejected",
+                ):
+                    module._fixed_historical_authority(release)
+
+        with mock.patch.object(
+            module.boot,
+            "verify_fixed_controller_release",
+            side_effect=module.boot.ResumeRejected("environment_rejected"),
+        ):
+            with self.assertRaisesRegex(
+                module.TelegramR5ControllerReleaseRejected,
+                "fixed_historical_release_rejected",
+            ):
+                module._fixed_historical_authority(release)
 
     def test_member_environment_and_complete_set_hostility_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
