@@ -31,7 +31,7 @@ GATEWAY_BUILDER = "scripts/build_telegram_gateway_release_v1.py"
 CONTROLLER_BUILDER = "scripts/build_telegram_r5_controller_release_v1.py"
 CUTOVER_COMMAND = "scripts/phase_f_owner_adjudicated_one_time_cutover_v1.py"
 CUTOVER_ACCEPTED_DEPLOY_PARENT = (
-    "54c45bf791e655a72d0b087756fed49da0e45fed"
+    "1d380ddfa27552ffe02ad695c1950fb08e57294e"
 )
 RENDER_HELPER = "scripts/activate_p07_hybrid_external_generation_v1.py"
 DIARY_HELPER = "scripts/p07_owner_day_diary_v2.py"

@@ -18,7 +18,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 CORE = Path("/srv/myuna/repos/core")
 sys.path.insert(0, (ROOT / "scripts").as_posix())
-ACCEPTED_PARENT = "54c45bf791e655a72d0b087756fed49da0e45fed"
+ACCEPTED_PARENT = "1d380ddfa27552ffe02ad695c1950fb08e57294e"
 CORE_COMMIT = "4c13c0b20552b5d8a8720f180d0569405fed00b0"
 CONFIG_SHA256 = "e" * 64
 MODULE_PATH = ROOT / "scripts/build_telegram_r5_controller_release_v1.py"
@@ -360,9 +360,15 @@ class TelegramR5ControllerReleaseTests(unittest.TestCase):
                     sys.modules[spec.name] = selected
                     spec.loader.exec_module(selected)
                     verified = selected.verified_controller_authority(release.parent, release.name)
+                    activation_spec = importlib.util.spec_from_file_location('sealed_activation', release / 'activate_p07_owner_private_memory_v1.py')
+                    activation = importlib.util.module_from_spec(activation_spec)
+                    sys.modules[activation_spec.name] = activation
+                    activation_spec.loader.exec_module(activation)
+                    installer_verified = activation._verified_controller_authority(release)
                     expected = selected.expected_controller_authority(release.parent, release.name)
                     valid = (
                         selected.verify_release(release.parent, release.name, expected)
+                        and installer_verified == verified
                         and verified['source']['deploy_parent'] == {ACCEPTED_PARENT!r}
                         and (release / 'phase_f_owner_adjudicated_one_time_cutover_v1.py').is_file()
                     )

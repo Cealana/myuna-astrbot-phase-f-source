@@ -2157,7 +2157,7 @@ def run_fixed_product_activation(
 
 def load_installed_source_authority() -> dict[str, object]:
     current_root = Path(__file__).resolve().parent
-    current = resume.verify_fixed_controller_release(current_root)
+    current = _verified_controller_authority(current_root)
     current_release = current.get("release_sha256")
     current_body = {
         key: current[key]
@@ -4843,6 +4843,44 @@ def _historical_controller_authority(
     return verified
 
 
+def _verified_controller_authority(
+    release_root: Path,
+) -> dict[str, object]:
+    """Verify one current release through its sealed builder authority."""
+
+    builder_path = (
+        release_root
+        / "source-authority"
+        / "build_telegram_r5_controller_release_v1.py"
+    )
+    builder_spec = importlib.util.spec_from_file_location(
+        "_phase_f_inactive_install_controller_builder",
+        builder_path,
+    )
+    require(
+        builder_spec is not None and builder_spec.loader is not None,
+        "fixed_controller_install_rejected",
+    )
+    builder = importlib.util.module_from_spec(builder_spec)
+    prior_builder = sys.modules.get(builder_spec.name)
+    try:
+        sys.modules[builder_spec.name] = builder
+        builder_spec.loader.exec_module(builder)
+        verified = builder.verified_controller_authority(
+            release_root.parent,
+            release_root.name,
+        )
+    except Exception as exc:
+        raise MemoryActivationRejected("fixed_controller_install_rejected") from exc
+    finally:
+        if prior_builder is None:
+            sys.modules.pop(builder_spec.name, None)
+        else:
+            sys.modules[builder_spec.name] = prior_builder
+    require(type(verified) is dict, "fixed_controller_install_rejected")
+    return verified
+
+
 def _prior_attempt_archive_child_name(
     repository: Path = DEPLOY_REPOSITORY,
 ) -> str:
@@ -5053,7 +5091,7 @@ def _publish_current_controller_release() -> tuple[Path, dict[str, object]]:
     """Publish and reopen the sealed current release without selecting it."""
 
     source_root = Path(__file__).resolve().parent
-    authority = resume.verify_fixed_controller_release(source_root)
+    authority = _verified_controller_authority(source_root)
     require(
         CONTROLLER_RELEASES_ROOT.exists()
         and CONTROLLER_RELEASES_ROOT.is_dir()
@@ -5144,7 +5182,7 @@ def _publish_current_controller_release() -> tuple[Path, dict[str, object]]:
                             pass
                 shutil.rmtree(temporary, ignore_errors=True)
             raise
-    installed_authority = resume.verify_fixed_controller_release(release_root)
+    installed_authority = _verified_controller_authority(release_root)
     require(installed_authority == authority, "fixed_controller_install_rejected")
 
     return release_root, authority
@@ -5213,7 +5251,7 @@ def install_current_controller_unit() -> dict[str, object]:
         "fixed_unit_install_rejected",
     )
     require(
-        resume.verify_fixed_controller_release(release_root) == authority,
+        _verified_controller_authority(release_root) == authority,
         "fixed_controller_install_rejected",
     )
     return {
@@ -5356,7 +5394,7 @@ def _install_r5_durability_pair(
             "r5_durability_target_reobservation_rejected",
         )
         require(
-            resume.verify_fixed_controller_release(target_release_root)
+            _verified_controller_authority(target_release_root)
             == target_authority,
             "r5_durability_target_release_changed",
         )

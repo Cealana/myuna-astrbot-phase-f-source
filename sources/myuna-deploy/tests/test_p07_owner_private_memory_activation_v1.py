@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import base64
 from contextlib import ExitStack
 from dataclasses import replace
@@ -1522,10 +1523,10 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
             ), mock.patch.object(
                 module, "CONTROLLER_RELEASES_ROOT", releases
             ), mock.patch.object(
-                module.resume,
-                "verify_fixed_controller_release",
+                module,
+                "_verified_controller_authority",
                 return_value=verified,
-            ), mock.patch.object(module, "_atomic_file") as write:
+            ) as verify, mock.patch.object(module, "_atomic_file") as write:
                 def materialize(path: Path, payload: bytes, mode: int, uid: int, gid: int) -> None:
                     path.write_bytes(payload)
                     path.chmod(mode)
@@ -1561,6 +1562,132 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
                 text,
             )
             self.assertNotIn("@CONTROLLER_", text)
+            installed = releases / root.name
+            self.assertEqual(
+                verify.call_args_list,
+                [
+                    mock.call(root),
+                    mock.call(installed),
+                    mock.call(installed),
+                    mock.call(root),
+                    mock.call(installed),
+                    mock.call(installed),
+                ],
+            )
+
+    def test_installer_controller_authority_delegates_to_sealed_builder(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            release = Path(temporary) / ("a" * 64)
+            builder = (
+                release
+                / "source-authority"
+                / "build_telegram_r5_controller_release_v1.py"
+            )
+            builder.parent.mkdir(parents=True)
+            builder.write_text(
+                "def verified_controller_authority(output_root, digest):\n"
+                "    return {\n"
+                "        'output_root': output_root.as_posix(),\n"
+                "        'release_sha256': digest,\n"
+                "    }\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                module._verified_controller_authority(release),
+                {
+                    "output_root": release.parent.as_posix(),
+                    "release_sha256": release.name,
+                },
+            )
+
+    def test_installer_source_authority_rejects_before_copy_effect(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / ("a" * 64)
+            source.mkdir()
+            fake_module = source / "activate_p07_owner_private_memory_v1.py"
+            fake_module.write_text("# fixed owner\n", encoding="utf-8")
+            releases = Path(temporary) / "controller-releases"
+            releases.mkdir()
+            with mock.patch.object(
+                module, "__file__", fake_module.as_posix()
+            ), mock.patch.object(
+                module, "CONTROLLER_RELEASES_ROOT", releases
+            ), mock.patch.object(
+                module,
+                "_verified_controller_authority",
+                side_effect=module.MemoryActivationRejected(
+                    "fixed_controller_install_rejected"
+                ),
+            ), mock.patch.object(module.subprocess, "run") as run:
+                with self.assertRaisesRegex(
+                    module.MemoryActivationRejected,
+                    "fixed_controller_install_rejected",
+                ):
+                    module._publish_current_controller_release()
+            self.assertEqual(tuple(releases.iterdir()), ())
+            run.assert_not_called()
+
+    def test_installer_copy_faults_never_reach_unit_effect(self) -> None:
+        for fault in ("copied_target", "fsync", "lost_return"):
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as temporary:
+                source = Path(temporary) / ("a" * 64)
+                source.mkdir()
+                (source / "payload").write_bytes(b"sealed\n")
+                fake_module = source / "activate_p07_owner_private_memory_v1.py"
+                fake_module.write_text("# fixed owner\n", encoding="utf-8")
+                releases = Path(temporary) / "controller-releases"
+                releases.mkdir()
+                verified = {"release_sha256": source.name}
+                original_run = module.subprocess.run
+                original_fsync = module.os.fsync
+                fsync_calls = [0]
+
+                def verify(selected: Path) -> dict[str, object]:
+                    if fault == "copied_target" and selected.parent == releases:
+                        raise module.MemoryActivationRejected(
+                            "fixed_controller_install_rejected"
+                        )
+                    return verified
+
+                def fsync(descriptor: int) -> None:
+                    fsync_calls[0] += 1
+                    if fault == "fsync" and fsync_calls[0] == 1:
+                        raise OSError("injected fsync")
+                    original_fsync(descriptor)
+
+                def move(*args: object, **kwargs: object) -> object:
+                    completed = original_run(*args, **kwargs)
+                    if fault == "lost_return" and completed.returncode == 0:
+                        return type(
+                            "LostReturn",
+                            (),
+                            {"returncode": 1},
+                        )()
+                    return completed
+
+                with mock.patch.object(
+                    module, "__file__", fake_module.as_posix()
+                ), mock.patch.object(
+                    module, "CONTROLLER_RELEASES_ROOT", releases
+                ), mock.patch.object(
+                    module,
+                    "_verified_controller_authority",
+                    side_effect=verify,
+                ), mock.patch.object(
+                    module.os, "fsync", side_effect=fsync
+                ), mock.patch.object(
+                    module.subprocess, "run", side_effect=move
+                ), mock.patch.object(module, "_atomic_file") as unit_effect:
+                    with self.assertRaises(
+                        (OSError, module.MemoryActivationRejected)
+                    ):
+                        module._publish_current_controller_release()
+                unit_effect.assert_not_called()
+                leftovers = tuple(releases.iterdir())
+                if fault == "fsync":
+                    self.assertEqual(leftovers, ())
+                else:
+                    self.assertEqual(leftovers, (releases / source.name,))
 
     def test_transitional_first_parent_chain_rejects_ambiguity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -1679,8 +1806,8 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
             "__file__",
             (Path(temporary) / current_release / "activate.py").as_posix(),
         ), mock.patch.object(
-            module.resume,
-            "verify_fixed_controller_release",
+            module,
+            "_verified_controller_authority",
             return_value=current_envelope,
         ) as current_verify, mock.patch.object(
             module,
@@ -1703,7 +1830,9 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
                 product.ATTEMPT5_PRODUCT_DEPLOY_PARENT,
             ),
         )
-        current_verify.assert_called_once()
+        current_verify.assert_called_once_with(
+            Path(temporary) / current_release
+        )
         frozen_verify.assert_called_once_with(
             module.CONTROLLER_RELEASES_ROOT
             / product.ATTEMPT5_PRODUCT_CONTROLLER_RELEASE
@@ -1714,21 +1843,23 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
             "__file__",
             (Path(temporary) / current_release / "activate.py").as_posix(),
         ), mock.patch.object(
-            module.resume,
-            "verify_fixed_controller_release",
-            side_effect=module.resume.ResumeRejected(
-                "fixed_controller_authority_rejected"
+            module,
+            "_verified_controller_authority",
+            side_effect=module.MemoryActivationRejected(
+                "fixed_controller_install_rejected"
             ),
         ) as rejected_verify, mock.patch.object(
             module,
             "_historical_controller_authority",
         ) as frozen_not_reached:
             with self.assertRaisesRegex(
-                module.resume.ResumeRejected,
-                "fixed_controller_authority_rejected",
+                module.MemoryActivationRejected,
+                "fixed_controller_install_rejected",
             ):
                 module.load_installed_source_authority()
-        rejected_verify.assert_called_once()
+        rejected_verify.assert_called_once_with(
+            Path(temporary) / current_release
+        )
         frozen_not_reached.assert_not_called()
 
         aliased_current = copy.deepcopy(current_envelope)
@@ -1739,8 +1870,8 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
             "__file__",
             (Path(temporary) / current_release / "activate.py").as_posix(),
         ), mock.patch.object(
-            module.resume,
-            "verify_fixed_controller_release",
+            module,
+            "_verified_controller_authority",
             return_value=aliased_current,
         ) as aliased_verify, mock.patch.object(
             module,
@@ -1749,7 +1880,9 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
             with self.assertRaises(product.ProductionPlanRejected) as raised:
                 module.load_installed_source_authority()
         self.assertEqual(raised.exception.code, "fixed_source_authority_rejected")
-        aliased_verify.assert_called_once()
+        aliased_verify.assert_called_once_with(
+            Path(temporary) / current_release
+        )
         frozen_not_reached.assert_not_called()
 
         substituted_current = copy.deepcopy(current_envelope)
@@ -1759,16 +1892,19 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
             "__file__",
             (Path(temporary) / current_release / "activate.py").as_posix(),
         ), mock.patch.object(
-            module.resume,
-            "verify_fixed_controller_release",
+            module,
+            "_verified_controller_authority",
             return_value=substituted_current,
-        ), mock.patch.object(
+        ) as substituted_verify, mock.patch.object(
             module,
             "_historical_controller_authority",
         ) as frozen_not_reached:
             with self.assertRaises(product.ProductionPlanRejected) as raised:
                 module.load_installed_source_authority()
         self.assertEqual(raised.exception.code, "fixed_controller_authority_rejected")
+        substituted_verify.assert_called_once_with(
+            Path(temporary) / current_release
+        )
         frozen_not_reached.assert_not_called()
 
         varied_release = "d" * 64
@@ -1781,10 +1917,10 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
             "__file__",
             (Path("/tmp") / varied_release / "activate.py").as_posix(),
         ), mock.patch.object(
-            module.resume,
-            "verify_fixed_controller_release",
+            module,
+            "_verified_controller_authority",
             return_value=varied_current,
-        ), mock.patch.object(
+        ) as varied_verify, mock.patch.object(
             module,
             "_historical_controller_authority",
             return_value=frozen_envelope,
@@ -1794,6 +1930,7 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
             frozen_digest,
         ):
             varied_loaded = module.load_installed_source_authority()
+        varied_verify.assert_called_once_with(Path("/tmp") / varied_release)
         self.assertEqual(
             product.canonical(varied_loaded),
             product.canonical(loaded),
@@ -1874,10 +2011,10 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
             "__file__",
             (Path("/tmp") / current_release / "activate.py").as_posix(),
         ), mock.patch.object(
-            module.resume,
-            "verify_fixed_controller_release",
+            module,
+            "_verified_controller_authority",
             return_value=current_envelope,
-        ), mock.patch.object(
+        ) as current_verify, mock.patch.object(
             module,
             "_historical_controller_authority",
             return_value=substituted,
@@ -1888,10 +2025,52 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
         ):
             with self.assertRaises(product.ProductionPlanRejected):
                 module.load_installed_source_authority()
+        current_verify.assert_called_once_with(Path("/tmp") / current_release)
         self.assertFalse(hasattr(module, "_verify_file_generation_predecessor"))
         self.assertFalse(
             any(name.startswith("FILE_PREDECESSOR_") for name in vars(product))
         )
+
+    def test_installed_source_caller_has_one_canonical_verifier_route(self) -> None:
+        tree = ast.parse(MODULE_PATH.read_bytes())
+        functions = {
+            node.name: node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+        }
+
+        def calls(function: ast.FunctionDef) -> tuple[str, ...]:
+            selected: list[str] = []
+            for node in ast.walk(function):
+                if not isinstance(node, ast.Call):
+                    continue
+                value = node.func
+                parts: list[str] = []
+                while isinstance(value, ast.Attribute):
+                    parts.append(value.attr)
+                    value = value.value
+                if isinstance(value, ast.Name):
+                    parts.append(value.id)
+                selected.append(".".join(reversed(parts)))
+            return tuple(selected)
+
+        installed_calls = calls(functions["load_installed_source_authority"])
+        self.assertEqual(
+            installed_calls.count("_verified_controller_authority"),
+            1,
+        )
+        self.assertNotIn(
+            "resume.verify_fixed_controller_release",
+            installed_calls,
+        )
+        direct = {
+            name: selected_calls.count("resume.verify_fixed_controller_release")
+            for name, function in functions.items()
+            if (
+                selected_calls := calls(function)
+            ).count("resume.verify_fixed_controller_release")
+        }
+        self.assertEqual(direct, {"_historical_controller_authority": 1})
 
     def test_historical_controller_retains_verified_envelope(self) -> None:
         selected = authority()
@@ -4181,8 +4360,8 @@ class OwnerPrivateMemoryActivationTests(unittest.TestCase):
                 mock.patch.object(module, "_atomic_file", side_effect=write),
                 mock.patch.object(module, "_r5_durability_daemon_reload"),
                 mock.patch.object(
-                    module.resume,
-                    "verify_fixed_controller_release",
+                    module,
+                    "_verified_controller_authority",
                     return_value=target_authority,
                 ),
             )

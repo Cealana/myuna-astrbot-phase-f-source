@@ -29,7 +29,7 @@ import telegram_r5_boot_resume as boot
 
 
 SCHEMA = "myuna.phase-f.owner-adjudicated-one-time-cutover.v1"
-EXPECTED_DEPLOY_PARENT = "54c45bf791e655a72d0b087756fed49da0e45fed"
+EXPECTED_DEPLOY_PARENT = "1d380ddfa27552ffe02ad695c1950fb08e57294e"
 RELEASES_ROOT = Path("/opt/myuna/telegram-r5/releases")
 LOCK_PATH = RELEASES_ROOT / ".myuna-phase-f.lock"
 OLD_CONTROLLER_RELEASE = (
