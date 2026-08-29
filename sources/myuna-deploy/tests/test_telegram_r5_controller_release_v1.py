@@ -7,8 +7,6 @@ import importlib.util
 import json
 import os
 from pathlib import Path
-import shutil
-import stat
 import subprocess
 import sys
 import tempfile
@@ -20,7 +18,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 CORE = Path("/srv/myuna/repos/core")
 sys.path.insert(0, (ROOT / "scripts").as_posix())
-ACCEPTED_PARENT = "6b9cce77bbab5968bcaf2d45de0ad37b0c4d01aa"
+ACCEPTED_PARENT = "c172aad62030bdd8f319ae394afe9665c936eb7d"
 CORE_COMMIT = "4c13c0b20552b5d8a8720f180d0569405fed00b0"
 CONFIG_SHA256 = "e" * 64
 MODULE_PATH = ROOT / "scripts/build_telegram_r5_controller_release_v1.py"
@@ -231,70 +229,17 @@ class TelegramR5ControllerReleaseTests(unittest.TestCase):
     def candidate_repositories(self, root: Path) -> tuple[Path, Path, str, str]:
         deploy = root / "deploy"
         core = root / "core"
+        deploy_commit = run(["git", "-C", ROOT.as_posix(), "rev-parse", "HEAD"])
         run([
-            "git", "-c", f"safe.directory={ROOT.as_posix()}", "clone", "--quiet",
+            "git", "-c", f"safe.directory={ROOT.as_posix()}", "clone", "--quiet", "--no-checkout",
             ROOT.as_posix(), deploy.as_posix(),
         ])
         run([
             "git", "-c", f"safe.directory={CORE.as_posix()}", "clone", "--quiet",
             CORE.as_posix(), core.as_posix(),
         ])
-        run(["git", "checkout", "--quiet", "--detach", ACCEPTED_PARENT], cwd=deploy)
-        changed = sorted(
-            {
-                *run(
-                    [
-                        "git",
-                        "-C",
-                        ROOT.as_posix(),
-                        "diff",
-                        "--name-only",
-                        ACCEPTED_PARENT,
-                    ]
-                ).splitlines(),
-                *run(
-                    [
-                        "git",
-                        "-C",
-                        ROOT.as_posix(),
-                        "ls-files",
-                        "--others",
-                        "--exclude-standard",
-                    ]
-                ).splitlines(),
-            }
-        )
-        self.assertEqual(
-            set(changed),
-            {
-                "scripts/build_telegram_r5_controller_release_v1.py",
-                "scripts/phase_f_owner_adjudicated_one_time_cutover_v1.py",
-                "tests/test_phase_f_owner_adjudicated_one_time_cutover_v1.py",
-                "tests/test_telegram_r5_controller_release_v1.py",
-            },
-        )
-        for relative in changed:
-            target = deploy / relative
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(ROOT / relative, target)
-            os.chmod(target, stat.S_IMODE((ROOT / relative).stat().st_mode))
-        run(["git", "add", "--", *changed], cwd=deploy)
-        environment = {
-            **os.environ,
-            "GIT_AUTHOR_NAME": "Generated Synthetic",
-            "GIT_AUTHOR_EMAIL": "generated@example.invalid",
-            "GIT_COMMITTER_NAME": "Generated Synthetic",
-            "GIT_COMMITTER_EMAIL": "generated@example.invalid",
-            "GIT_AUTHOR_DATE": "2000-01-01T00:00:00+00:00",
-            "GIT_COMMITTER_DATE": "2000-01-01T00:00:00+00:00",
-        }
-        subprocess.run(
-            ["git", "commit", "--quiet", "-m", "generated fixed product source"],
-            cwd=deploy,
-            check=True,
-            env=environment,
-        )
-        deploy_commit = run(["git", "rev-parse", "HEAD"], cwd=deploy)
+        run(["git", "checkout", "--quiet", "--detach", deploy_commit], cwd=deploy)
+        self.assertEqual(run(["git", "status", "--porcelain=v1"], cwd=deploy), "")
         self.assertEqual(run(["git", "rev-parse", "HEAD^"], cwd=deploy), ACCEPTED_PARENT)
         self.assertEqual(run(["git", "rev-parse", "HEAD"], cwd=core), CORE_COMMIT)
         return deploy, core, deploy_commit, CORE_COMMIT
@@ -629,7 +574,15 @@ class TelegramR5ControllerReleaseTests(unittest.TestCase):
     def test_only_exact_direct_child_source_is_accepted(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            deploy, core, _deploy_commit, core_commit = self.candidate_repositories(root)
+            deploy, _core, deploy_commit, _core_commit = self.candidate_repositories(root)
+            self.assertEqual(
+                module._validate_repository(
+                    deploy,
+                    deploy_commit,
+                    parent=ACCEPTED_PARENT,
+                ),
+                run(["git", "rev-parse", "HEAD^{tree}"], cwd=deploy),
+            )
             environment = {
                 **os.environ,
                 "GIT_AUTHOR_NAME": "Generated Synthetic",
@@ -638,7 +591,7 @@ class TelegramR5ControllerReleaseTests(unittest.TestCase):
                 "GIT_COMMITTER_EMAIL": "generated@example.invalid",
             }
             subprocess.run(
-                ["git", "commit", "--allow-empty", "--quiet", "-m", "second child"],
+                ["git", "commit", "--allow-empty", "--quiet", "-m", "grandchild"],
                 cwd=deploy,
                 check=True,
                 env=environment,
@@ -650,6 +603,28 @@ class TelegramR5ControllerReleaseTests(unittest.TestCase):
                     parent=ACCEPTED_PARENT,
                 )
             self.assertEqual(run(["git", "rev-parse", "HEAD^^"], cwd=deploy), ACCEPTED_PARENT)
+
+            run(["git", "checkout", "--quiet", "--detach", ACCEPTED_PARENT], cwd=deploy)
+            subprocess.run(
+                ["git", "commit", "--allow-empty", "--quiet", "-m", "sibling"],
+                cwd=deploy,
+                check=True,
+                env=environment,
+            )
+            with self.assertRaises(module.TelegramR5ControllerReleaseRejected):
+                module._validate_repository(
+                    deploy,
+                    deploy_commit,
+                    parent=ACCEPTED_PARENT,
+                )
+
+            run(["git", "checkout", "--quiet", "--detach", deploy_commit], cwd=deploy)
+            with self.assertRaises(module.TelegramR5ControllerReleaseRejected):
+                module._validate_repository(
+                    deploy,
+                    deploy_commit,
+                    parent="f" * 40,
+                )
 
     def test_builder_source_has_no_retired_target_owner_import(self) -> None:
         text = MODULE_PATH.read_text("utf-8")

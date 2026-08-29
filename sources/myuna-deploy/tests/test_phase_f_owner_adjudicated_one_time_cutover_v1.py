@@ -426,7 +426,7 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
     def test_fixed_identity_constants_and_checkpoint_members_are_unique(self) -> None:
         self.assertEqual(
             module.EXPECTED_DEPLOY_PARENT,
-            "6b9cce77bbab5968bcaf2d45de0ad37b0c4d01aa",
+            "c172aad62030bdd8f319ae394afe9665c936eb7d",
         )
         self.assertEqual(len(module._TARGET_CONTAINER["container_id"]), 64)
         self.assertNotEqual(
