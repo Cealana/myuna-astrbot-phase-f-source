@@ -379,13 +379,25 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
             "--public-package-sha256", "c" * 64,
             "--release-sha256", "d" * 64,
         ]
-        for mode, kind in (
-            ("cutover", "cutover_manual_required"),
-            ("rollback", "rollback_manual_required"),
+        for mode, kind, boundary, raw_cause, expected_cause in (
+            (
+                "cutover",
+                "cutover_manual_required",
+                "target_container",
+                "target_start_command_rejected",
+                "target_start_command_rejected",
+            ),
+            (
+                "rollback",
+                "rollback_manual_required",
+                "restore:old_container",
+                "lost_return:synthetic-raw-value",
+                "manual_effect_unclassified_rejected",
+            ),
         ):
             with self.subTest(mode=mode):
                 output = io.StringIO()
-                error = module.ManualRequired(kind, "restore:old_container", "lost_return")
+                error = module.ManualRequired(kind, boundary, raw_cause)
                 with (
                     mock.patch.object(sys, "argv", [MODULE_PATH.as_posix(), mode, *selection]),
                     mock.patch.object(module.os, "geteuid", return_value=0),
@@ -397,10 +409,147 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
                     self.assertEqual(module.main(), 1)
                 result = json.loads(output.getvalue())
                 self.assertEqual(result["status"], kind)
-                self.assertEqual(result["boundary"], "restore:old_container")
+                self.assertEqual(result["boundary"], boundary)
+                self.assertEqual(result["cause"], expected_cause)
                 self.assertNotIn("code", result)
-                self.assertNotIn("lost_return", output.getvalue())
+                if raw_cause != expected_cause:
+                    self.assertNotIn(raw_cause, output.getvalue())
                 self.assertNotIn("ManualRequired", output.getvalue())
+
+    def test_target_container_lower_rejections_have_finite_cli_causes(self) -> None:
+        selection = [
+            "--reviewed-deploy-commit", "a" * 40,
+            "--reviewed-deploy-tree", "b" * 40,
+            "--public-package-sha256", "c" * 64,
+            "--release-sha256", "d" * 64,
+        ]
+        cases = (
+            (
+                "policy",
+                module.boot.ResumeRejected("phase_f_policy_identity_rejected"),
+                "target_policy_identity_rejected",
+            ),
+            (
+                "policy",
+                module.boot.ResumeRejected("phase_f_policy_state_ambiguous"),
+                "target_policy_state_rejected",
+            ),
+            (
+                "policy",
+                module.boot.ResumeRejected("fixed_command_failed:docker:23"),
+                "target_policy_command_rejected",
+            ),
+            (
+                "policy",
+                module.boot.ResumeRejected("phase_f_policy_poststate_rejected"),
+                "target_policy_poststate_rejected",
+            ),
+            (
+                "start",
+                module.boot.ResumeRejected("phase_f_start_identity_rejected"),
+                "target_start_identity_rejected",
+            ),
+            (
+                "start",
+                module.boot.ResumeRejected("phase_f_start_state_ambiguous"),
+                "target_start_state_rejected",
+            ),
+            (
+                "start",
+                module.boot.ResumeRejected("fixed_command_failed:docker:29"),
+                "target_start_command_rejected",
+            ),
+            (
+                "start",
+                module.boot.ResumeRejected("phase_f_start_poststate_rejected"),
+                "target_start_poststate_rejected",
+            ),
+            (
+                "start",
+                module.boot.ResumeRejected("phase_f_start_health_timeout"),
+                "target_start_health_timeout",
+            ),
+            (
+                "policy",
+                module.boot.ResumeRejected("future-lower-secret"),
+                "target_container_unclassified_rejected",
+            ),
+            (
+                "policy",
+                RuntimeError("unexpected-policy-secret"),
+                "target_container_unclassified_rejected",
+            ),
+            (
+                "start",
+                RuntimeError("unexpected-start-secret"),
+                "target_container_unclassified_rejected",
+            ),
+        )
+        for operation, lower_error, expected_cause in cases:
+            with self.subTest(
+                operation=operation,
+                lower=type(lower_error).__name__,
+                expected=expected_cause,
+            ):
+                state = synthetic_state()
+                effects = module.HostEffects(
+                    module.ReleaseSelection("a" * 40, "b" * 40, "c" * 64, "d" * 64)
+                )
+                policy = mock.Mock(return_value=state.target)
+                start = mock.Mock(return_value=state.target)
+                if operation == "policy":
+                    policy.side_effect = lower_error
+                else:
+                    start.side_effect = lower_error
+                with (
+                    mock.patch.object(
+                        module.boot, "phase_f_set_restart_policy_exact", policy
+                    ),
+                    mock.patch.object(module.boot, "phase_f_start_container_exact", start),
+                ):
+                    with self.assertRaises(module.CutoverRejected) as caught:
+                        effects.start_target(state)
+                self.assertEqual(caught.exception.code, expected_cause)
+                self.assertEqual(policy.call_count, 1)
+                self.assertEqual(start.call_count, 0 if operation == "policy" else 1)
+                self.assertNotIn(str(lower_error), str(caught.exception))
+
+                fake = FakeEffects()
+                with mock.patch.object(
+                    fake,
+                    "start_target",
+                    side_effect=module.CutoverRejected(expected_cause),
+                ):
+                    with self.assertRaises(module.ManualRequired) as manual:
+                        module.execute("cutover", fake)
+                self.assertEqual(manual.exception.effect_code, expected_cause)
+                self.assertNotIn("verify_new_running", fake.calls)
+                self.assertEqual(fake.calls.count("stop_target"), 1)
+
+                output = io.StringIO()
+                with (
+                    mock.patch.object(sys, "argv", [MODULE_PATH.as_posix(), "cutover", *selection]),
+                    mock.patch.object(module.os, "geteuid", return_value=0),
+                    mock.patch.object(module, "releases_lock", return_value=nullcontext()),
+                    mock.patch.object(module, "HostEffects"),
+                    mock.patch.object(module, "execute", side_effect=manual.exception),
+                    redirect_stdout(output),
+                ):
+                    self.assertEqual(module.main(), 1)
+                receipt = json.loads(output.getvalue())
+                self.assertEqual(
+                    receipt,
+                    {
+                        "boundary": "target_container",
+                        "cause": expected_cause,
+                        "mode": "cutover",
+                        "schema": module.SCHEMA,
+                        "status": "cutover_manual_required",
+                    },
+                )
+                self.assertNotIn(str(lower_error), output.getvalue())
+                self.assertNotIn("traceback", output.getvalue().lower())
+                self.assertNotIn("stderr", output.getvalue().lower())
 
     def test_host_effects_explicit_rollback_admits_remove_before_rename_partial(self) -> None:
         synthetic = synthetic_state()
@@ -790,7 +939,7 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
     def test_fixed_identity_constants_and_sealed_members_are_unique(self) -> None:
         self.assertEqual(
             module.EXPECTED_DEPLOY_PARENT,
-            "47af0163ae6d6effb323ff2a92f7783b420be310",
+            "e5f62740d3f9d60f6ab3c90feaba1d031e57427e",
         )
         self.assertEqual(len(module._TARGET_CONTAINER["container_id"]), 64)
         self.assertNotEqual(

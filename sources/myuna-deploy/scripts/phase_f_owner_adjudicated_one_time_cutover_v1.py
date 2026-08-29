@@ -29,7 +29,7 @@ import telegram_r5_boot_resume as boot
 
 
 SCHEMA = "myuna.phase-f.owner-adjudicated-one-time-cutover.v1"
-EXPECTED_DEPLOY_PARENT = "47af0163ae6d6effb323ff2a92f7783b420be310"
+EXPECTED_DEPLOY_PARENT = "e5f62740d3f9d60f6ab3c90feaba1d031e57427e"
 _FIXED_PRODUCT_AUTHORITY_FIELDS = (
     "builder",
     "controller",
@@ -127,6 +127,21 @@ _NETWORK = {
     "network_id": "0e968ab6d47794e48047df327b7ba1b34f42a41b17b73c420a49ef8dc9f08284",
     "options_digest": "db3dbc0eac234ea1dd90df7b0f7453e5145e522f550d284b03f59e0ffe47344c",
 }
+_TARGET_CONTAINER_CAUSES = frozenset(
+    {
+        "target_container_unclassified_rejected",
+        "target_policy_command_rejected",
+        "target_policy_identity_rejected",
+        "target_policy_poststate_rejected",
+        "target_policy_state_rejected",
+        "target_start_command_rejected",
+        "target_start_health_timeout",
+        "target_start_identity_rejected",
+        "target_start_poststate_rejected",
+        "target_start_state_rejected",
+    }
+)
+_MANUAL_REQUIRED_UNCLASSIFIED_CAUSE = "manual_effect_unclassified_rejected"
 
 
 class CutoverRejected(RuntimeError):
@@ -620,8 +635,35 @@ class HostEffects:
 
     def start_target(self, state: Preflight) -> None:
         _require(state.target is not None, "target_container_missing")
-        selected = boot.phase_f_set_restart_policy_exact(state.target)
-        boot.phase_f_start_container_exact(selected)
+        try:
+            selected = boot.phase_f_set_restart_policy_exact(state.target)
+        except boot.ResumeRejected as exc:
+            lower = str(exc)
+            cause = {
+                "phase_f_policy_identity_rejected": "target_policy_identity_rejected",
+                "phase_f_policy_poststate_rejected": "target_policy_poststate_rejected",
+                "phase_f_policy_state_ambiguous": "target_policy_state_rejected",
+            }.get(lower)
+            if cause is None and re.fullmatch(r"fixed_command_failed:docker:-?\d+", lower):
+                cause = "target_policy_command_rejected"
+            raise CutoverRejected(cause or "target_container_unclassified_rejected") from None
+        except Exception:
+            raise CutoverRejected("target_container_unclassified_rejected") from None
+        try:
+            boot.phase_f_start_container_exact(selected)
+        except boot.ResumeRejected as exc:
+            lower = str(exc)
+            cause = {
+                "phase_f_start_health_timeout": "target_start_health_timeout",
+                "phase_f_start_identity_rejected": "target_start_identity_rejected",
+                "phase_f_start_poststate_rejected": "target_start_poststate_rejected",
+                "phase_f_start_state_ambiguous": "target_start_state_rejected",
+            }.get(lower)
+            if cause is None and re.fullmatch(r"fixed_command_failed:docker:-?\d+", lower):
+                cause = "target_start_command_rejected"
+            raise CutoverRejected(cause or "target_container_unclassified_rejected") from None
+        except Exception:
+            raise CutoverRejected("target_container_unclassified_rejected") from None
 
     def stop_service(self, unit: str) -> None:
         _require(unit in SERVICES, "service_stop_rejected")
@@ -783,10 +825,16 @@ def main() -> int:
         with releases_lock():
             result = execute(args.mode, HostEffects(selection))
     except ManualRequired as exc:
+        cause = (
+            exc.effect_code
+            if exc.effect_code in _TARGET_CONTAINER_CAUSES
+            else _MANUAL_REQUIRED_UNCLASSIFIED_CAUSE
+        )
         print(
             _canonical(
                 {
                     "boundary": exc.boundary,
+                    "cause": cause,
                     "mode": args.mode,
                     "schema": SCHEMA,
                     "status": exc.kind,
