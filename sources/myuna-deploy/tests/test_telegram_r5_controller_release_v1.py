@@ -20,7 +20,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 CORE = Path("/srv/myuna/repos/core")
 sys.path.insert(0, (ROOT / "scripts").as_posix())
-ACCEPTED_PARENT = "e7d624659b882280b5c874e3095dcc46662236b6"
+ACCEPTED_PARENT = "6b9cce77bbab5968bcaf2d45de0ad37b0c4d01aa"
 CORE_COMMIT = "4c13c0b20552b5d8a8720f180d0569405fed00b0"
 CONFIG_SHA256 = "e" * 64
 MODULE_PATH = ROOT / "scripts/build_telegram_r5_controller_release_v1.py"
@@ -174,7 +174,7 @@ def fixed_build_output(seed: int = 19001) -> tuple[dict[str, object], dict[str, 
             "core_commit": product.ACCEPTED_CORE_COMMIT,
             "core_tree": product.ACCEPTED_CORE_TREE,
             "deploy_commit": "0" * 40,
-            "deploy_parent": product.ACCEPTED_DEPLOY_PARENT,
+            "deploy_parent": module.CUTOVER_ACCEPTED_DEPLOY_PARENT,
             "deploy_tree": "1" * 40,
         },
     }
@@ -221,7 +221,7 @@ def maintenance_build_output(
         "core_commit": product.ACCEPTED_CORE_COMMIT,
         "core_tree": product.ACCEPTED_CORE_TREE,
         "deploy_commit": "d" * 40,
-        "deploy_parent": product.ACCEPTED_DEPLOY_PARENT,
+        "deploy_parent": module.CUTOVER_ACCEPTED_DEPLOY_PARENT,
         "deploy_tree": "e" * 40,
     }
     return baseline, target, payloads
@@ -239,15 +239,37 @@ class TelegramR5ControllerReleaseTests(unittest.TestCase):
             "git", "-c", f"safe.directory={CORE.as_posix()}", "clone", "--quiet",
             CORE.as_posix(), core.as_posix(),
         ])
-        changed = run(["git", "-C", ROOT.as_posix(), "diff", "--name-only"]).splitlines()
+        run(["git", "checkout", "--quiet", "--detach", ACCEPTED_PARENT], cwd=deploy)
+        changed = sorted(
+            {
+                *run(
+                    [
+                        "git",
+                        "-C",
+                        ROOT.as_posix(),
+                        "diff",
+                        "--name-only",
+                        ACCEPTED_PARENT,
+                    ]
+                ).splitlines(),
+                *run(
+                    [
+                        "git",
+                        "-C",
+                        ROOT.as_posix(),
+                        "ls-files",
+                        "--others",
+                        "--exclude-standard",
+                    ]
+                ).splitlines(),
+            }
+        )
         self.assertEqual(
             set(changed),
             {
-                "scripts/activate_p07_owner_private_memory_v1.py",
                 "scripts/build_telegram_r5_controller_release_v1.py",
-                "scripts/p07_owner_private_memory_production_plan.py",
-                "tests/test_p07_owner_private_memory_activation_v1.py",
-                "tests/test_p07_owner_private_memory_production_plan.py",
+                "scripts/phase_f_owner_adjudicated_one_time_cutover_v1.py",
+                "tests/test_phase_f_owner_adjudicated_one_time_cutover_v1.py",
                 "tests/test_telegram_r5_controller_release_v1.py",
             },
         )
@@ -342,8 +364,25 @@ class TelegramR5ControllerReleaseTests(unittest.TestCase):
                 self.assertTrue({
                     "activate_p07_owner_private_memory_v1.py",
                     "p07_owner_private_memory_production_plan.py",
+                    "phase_f_owner_adjudicated_one_time_cutover_v1.py",
                     "telegram_r5_boot_resume.py",
                 }.issubset(destinations))
+                command = next(
+                    row
+                    for row in manifest["files"]
+                    if row["destination"]
+                    == "phase_f_owner_adjudicated_one_time_cutover_v1.py"
+                )
+                self.assertEqual(
+                    command["source"],
+                    "scripts/phase_f_owner_adjudicated_one_time_cutover_v1.py",
+                )
+                self.assertEqual(command["mode"], "100755")
+                self.assertEqual(command["installed_mode"], "0555")
+                self.assertIn(
+                    command,
+                    manifest["source_receipt"]["deploy_members"],
+                )
                 for forbidden in (
                     "activate_p07_d_generation13_v1.py",
                     "p07_d_activation_transaction.py",
@@ -368,20 +407,21 @@ class TelegramR5ControllerReleaseTests(unittest.TestCase):
                 )
                 program = textwrap.dedent(
                     f"""
-                    import importlib.util, os, pathlib, sys, types
+                    import importlib.util, pathlib, sys
                     release = pathlib.Path({release.as_posix()!r})
                     sys.path.insert(0, release.as_posix())
-                    owner = types.ModuleType('activate_p07_owner_private_memory_v1')
-                    owner.fixed_owner_entry = lambda: 75
-                    sys.modules[owner.__name__] = owner
-                    spec = importlib.util.spec_from_file_location('sealed_boot', release / 'telegram_r5_boot_resume.py')
+                    spec = importlib.util.spec_from_file_location('sealed_builder', release / 'source-authority/build_telegram_r5_controller_release_v1.py')
                     selected = importlib.util.module_from_spec(spec)
                     sys.modules[spec.name] = selected
                     spec.loader.exec_module(selected)
-                    os.environ[selected.CONTROLLER_RELEASE_ENV] = {digest!r}
-                    os.environ[selected.CONTROLLER_CONFIG_ENV] = {str(expected['controller_config_sha256'])!r}
-                    os.environ[selected.CONTROLLER_AUTHORITY_ENV] = {str(expected['controller_static_authority_sha256'])!r}
-                    raise SystemExit(0 if selected.main() == 75 else 1)
+                    verified = selected.verified_controller_authority(release.parent, release.name)
+                    expected = selected.expected_controller_authority(release.parent, release.name)
+                    valid = (
+                        selected.verify_release(release.parent, release.name, expected)
+                        and verified['source']['deploy_parent'] == {ACCEPTED_PARENT!r}
+                        and (release / 'phase_f_owner_adjudicated_one_time_cutover_v1.py').is_file()
+                    )
+                    raise SystemExit(0 if valid else 1)
                     """
                 )
                 completed = subprocess.run(
@@ -417,21 +457,21 @@ class TelegramR5ControllerReleaseTests(unittest.TestCase):
             )
             program = textwrap.dedent(
                 f"""
-                import importlib.util, os, pathlib, socket, sys, types
+                import importlib.util, pathlib, sys
                 release = pathlib.Path({release.as_posix()!r})
                 sys.path[:] = [release.as_posix(), *[p for p in sys.path if 'site-packages' not in p and 'myuna' not in p]]
-                owner = types.ModuleType('activate_p07_owner_private_memory_v1')
-                owner.fixed_owner_entry = lambda: 73 if selected.verify_fixed_controller_release(release)['releases']['plugin']['digest'] == {product.R5_DURABILITY_TARGET_PLUGIN_RELEASE!r} else 1
-                sys.modules[owner.__name__] = owner
-                socket.socket = lambda *a, **k: (_ for _ in ()).throw(RuntimeError('network denied'))
-                spec = importlib.util.spec_from_file_location('sealed_boot', release / 'telegram_r5_boot_resume.py')
+                spec = importlib.util.spec_from_file_location('sealed_builder', release / 'source-authority/build_telegram_r5_controller_release_v1.py')
                 selected = importlib.util.module_from_spec(spec)
                 sys.modules[spec.name] = selected
                 spec.loader.exec_module(selected)
-                os.environ[selected.CONTROLLER_RELEASE_ENV] = {first_digest!r}
-                os.environ[selected.CONTROLLER_CONFIG_ENV] = {str(first_expected['controller_config_sha256'])!r}
-                os.environ[selected.CONTROLLER_AUTHORITY_ENV] = {str(first_expected['controller_static_authority_sha256'])!r}
-                raise SystemExit(0 if selected.main() == 73 else 1)
+                verified = selected.verified_controller_authority(release.parent, release.name)
+                expected = selected.expected_controller_authority(release.parent, release.name)
+                valid = (
+                    selected.verify_release(release.parent, release.name, expected)
+                    and verified['releases']['plugin']['digest'] == {product.R5_DURABILITY_TARGET_PLUGIN_RELEASE!r}
+                    and verified['source']['deploy_parent'] == {ACCEPTED_PARENT!r}
+                )
+                raise SystemExit(0 if valid else 1)
                 """
             )
             completed = subprocess.run(
@@ -530,43 +570,30 @@ class TelegramR5ControllerReleaseTests(unittest.TestCase):
             os.chmod(release, 0o555)
             self.assertFalse(module.verify_release(output, digest, expected))
 
-    def test_builder_to_existing_installer_unit_execstart_isolated(self) -> None:
+    def test_builder_to_stateless_cutover_guard_unit_isolated(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            output, digest, _expected = self.build(root)
+            output, digest, expected = self.build(root)
             release = output / digest
-            installed_root = root / "installed-releases"
-            installed_root.mkdir()
-            unit = root / "installed-unit.service"
+            selection = module.controller_selection_tuple(output, digest)
             program = textwrap.dedent(
                 f"""
-                import pathlib, sys
+                import importlib.util, pathlib, sys
                 release = pathlib.Path({release.as_posix()!r})
                 sys.path.insert(0, release.as_posix())
-                import activate_p07_owner_private_memory_v1 as owner
-                owner.CONTROLLER_RELEASES_ROOT = pathlib.Path({installed_root.as_posix()!r})
-                owner.UNIT_PATH = pathlib.Path({unit.as_posix()!r})
-                owner.UNIT_PATH.write_bytes(b'synthetic transitional unit\\n')
-                owner.UNIT_PATH.chmod(0o644)
-                owner._admit_transitional_controller_unit = lambda _row: True
-                def write(path, payload, mode, uid, gid):
-                    path.write_bytes(payload)
-                    path.chmod(mode)
-                owner._atomic_file = write
-                original_observation = owner._file_observation
-                def observe(path):
-                    row = original_observation(path)
-                    row['uid'] = 0
-                    row['gid'] = 0
-                    return row
-                owner._file_observation = observe
-                result = owner.install_current_controller_unit()
-                installed = owner.CONTROLLER_RELEASES_ROOT / release.name
-                text = owner.UNIT_PATH.read_text('utf-8')
+                spec = importlib.util.spec_from_file_location('sealed_cutover', release / 'phase_f_owner_adjudicated_one_time_cutover_v1.py')
+                selected = importlib.util.module_from_spec(spec)
+                sys.modules[spec.name] = selected
+                spec.loader.exec_module(selected)
+                expected = {expected!r}
+                selection = selected.ReleaseSelection(**{selection!r})
+                text = selected._render_unit(release, expected, guard=True, selection=selection).decode('utf-8')
                 valid = (
-                    result['status'] == 'INSTALLED_INACTIVE_NOT_STARTED'
-                    and installed.is_dir()
-                    and f'ExecStart=/usr/bin/python3 {{installed}}/telegram_r5_boot_resume.py' in text
+                    f'ExecStart=/usr/bin/python3 {{release}}/phase_f_owner_adjudicated_one_time_cutover_v1.py preflight' in text
+                    and f'--release-sha256 {{release.name}}' in text
+                    and '--reviewed-deploy-commit' in text
+                    and '--public-package-sha256' in text
+                    and f'ExecStart=/usr/bin/python3 {{release}}/telegram_r5_boot_resume.py' not in text
                     and '@CONTROLLER_' not in text
                 )
                 raise SystemExit(0 if valid else 1)
@@ -580,6 +607,24 @@ class TelegramR5ControllerReleaseTests(unittest.TestCase):
                 env={"PYTHONDONTWRITEBYTECODE": "1"},
             )
             self.assertEqual(completed.returncode, 0, completed.stderr)
+
+    def test_selection_tuple_is_exact_and_public_package_bound(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output, digest, _expected = self.build(Path(temporary))
+            selection = module.controller_selection_tuple(output, digest)
+            release = output / digest
+            manifest = json.loads((release / "MANIFEST.json").read_bytes())
+            self.assertEqual(selection["release_sha256"], digest)
+            self.assertEqual(selection["deploy_commit"], manifest["deploy_commit"])
+            self.assertEqual(selection["deploy_tree"], manifest["deploy_tree"])
+            self.assertEqual(
+                selection["public_package_sha256"],
+                sha256((release / "CORRESPONDING_SOURCE.json").read_bytes()).hexdigest(),
+            )
+            self.assertEqual(
+                selection["public_package_sha256"],
+                manifest["paired_source_package_sha256"],
+            )
 
     def test_only_exact_direct_child_source_is_accepted(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -620,6 +665,17 @@ class TelegramR5ControllerReleaseTests(unittest.TestCase):
             "gateway.verify_deterministic_astrbot_archive",
         ):
             self.assertIn(required, text)
+
+    def test_cutover_parent_override_is_exact_and_always_restored(self) -> None:
+        original = product.ACCEPTED_DEPLOY_PARENT
+        self.assertEqual(module.CUTOVER_ACCEPTED_DEPLOY_PARENT, ACCEPTED_PARENT)
+        with module._source_parent_contract(ACCEPTED_PARENT):
+            self.assertEqual(product.ACCEPTED_DEPLOY_PARENT, ACCEPTED_PARENT)
+        self.assertEqual(product.ACCEPTED_DEPLOY_PARENT, original)
+        with self.assertRaises(module.TelegramR5ControllerReleaseRejected):
+            with module._source_parent_contract("f" * 40):
+                self.fail("unreachable")
+        self.assertEqual(product.ACCEPTED_DEPLOY_PARENT, original)
 
     def test_runtime_base_projection_excludes_only_validated_bytecode(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
