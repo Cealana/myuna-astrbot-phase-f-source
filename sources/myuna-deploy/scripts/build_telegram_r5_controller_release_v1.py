@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import base64
 from contextlib import contextmanager
+from dataclasses import replace
 import grp
 from hashlib import sha1, sha256
 import importlib.util
@@ -31,7 +32,7 @@ GATEWAY_BUILDER = "scripts/build_telegram_gateway_release_v1.py"
 CONTROLLER_BUILDER = "scripts/build_telegram_r5_controller_release_v1.py"
 CUTOVER_COMMAND = "scripts/phase_f_owner_adjudicated_one_time_cutover_v1.py"
 CUTOVER_ACCEPTED_DEPLOY_PARENT = (
-    "e5f62740d3f9d60f6ab3c90feaba1d031e57427e"
+    "cab0fcbc29c513fe17c9b68a7438ea424a349036"
 )
 RENDER_HELPER = "scripts/activate_p07_hybrid_external_generation_v1.py"
 DIARY_HELPER = "scripts/p07_owner_day_diary_v2.py"
@@ -906,6 +907,117 @@ def verified_controller_authority(
     parent = str(document.get("deploy_parent"))
     with _source_parent_contract(parent):
         return boot.verify_fixed_controller_release(output_root / digest)
+
+
+def verified_target_container_authority(
+    authority: Mapping[str, object],
+    old: boot.PhaseFContainerProjection,
+    network: boot.PhaseFNetworkProjection,
+) -> boot.PhaseFTargetContainer:
+    """Project one source-verified stopped TARGET from fixed release authority."""
+
+    fixed_fields = (
+        "builder",
+        "controller",
+        "files",
+        "image",
+        "parent",
+        "releases",
+        "schema",
+        "source",
+    )
+    _require(
+        type(authority) is dict
+        and all(key in authority for key in (*fixed_fields, "authority_sha256")),
+        "target_container_authority_rejected",
+    )
+    fixed_authority = {key: authority[key] for key in fixed_fields}
+    source_authority = {
+        **fixed_authority,
+        "authority_sha256": product.digest(
+            "phase_f_fixed_source",
+            fixed_authority,
+        ),
+    }
+    verified = _validate_source_authority(source_authority)
+    archive_name = boot.ARCHIVE_PREFIX + str(verified["authority_sha256"])[:16]
+    archived_old = replace(old, name=archive_name)
+    _require(
+        old.name == boot.CONTAINER
+        and old.status in {"created", "exited"}
+        and network.member_container_ids == (),
+        "target_container_authority_rejected",
+    )
+    observation = {
+        "archive_name": {
+            "projection_sha256": boot.phase_f_container_identity_sha256(
+                archived_old
+            )
+        },
+        "network": {
+            "projection_sha256": boot.phase_f_network_identity_sha256(network)
+        },
+    }
+    effect = product._attempt5_target_effect(verified, observation)
+    effect["archive_container_id"] = archived_old.container_id
+    effect["effect_sha256"] = product.digest(
+        "phase_f_attempt5_target_effect_v1",
+        {key: value for key, value in effect.items() if key != "effect_sha256"},
+    )
+    mounts = effect.get("mounts")
+    _require(
+        type(mounts) is list
+        and all(type(row) is dict for row in mounts),
+        "target_container_authority_rejected",
+    )
+    by_destination = {str(row.get("destination")): row for row in mounts}
+    _require(
+        len(by_destination) == len(mounts)
+        and set(by_destination)
+        == {
+            "/AstrBot/data",
+            "/AstrBot/data/plugins/astrbot_plugin_myuna_telegram_gateway",
+            "/run/myuna-telegram-gateway",
+            "/run/myuna-telegram-media-auth",
+            "/run/secrets/myuna-telegram-channel-signing-v1",
+        },
+        "target_container_authority_rejected",
+    )
+    try:
+        target = boot.PhaseFTargetContainer(
+            plan_digest=str(effect["plan_digest"]),
+            target_config_digest=str(effect["target_config_digest"]),
+            image=str(effect["image"]),
+            user=str(effect["user"]),
+            channel_root=Path(str(by_destination["/AstrBot/data"]["source"])).parent,
+            plugin_root=Path(
+                str(
+                    by_destination[
+                        "/AstrBot/data/plugins/astrbot_plugin_myuna_telegram_gateway"
+                    ]["source"]
+                )
+            ),
+            signing_secret=Path(
+                str(
+                    by_destination[
+                        "/run/secrets/myuna-telegram-channel-signing-v1"
+                    ]["source"]
+                )
+            ),
+            runtime_root=Path(
+                str(by_destination["/run/myuna-telegram-gateway"]["source"])
+            ),
+            media_auth_runtime_root=Path(
+                str(by_destination["/run/myuna-telegram-media-auth"]["source"])
+            ),
+            archive_name=archive_name,
+            effect=effect,
+        )
+    except (KeyError, TypeError, ValueError, boot.ResumeRejected) as exc:
+        raise TelegramR5ControllerReleaseRejected(
+            "target_container_authority_rejected"
+        ) from exc
+    return target
 
 
 def verify_release(output_root: Path, digest: str, expected_authority: Mapping[str, object]) -> bool:

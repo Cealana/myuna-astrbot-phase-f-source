@@ -12,7 +12,7 @@ from __future__ import annotations
 import argparse
 import base64
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import fcntl
 from hashlib import sha256
 import importlib.util
@@ -29,7 +29,7 @@ import telegram_r5_boot_resume as boot
 
 
 SCHEMA = "myuna.phase-f.owner-adjudicated-one-time-cutover.v1"
-EXPECTED_DEPLOY_PARENT = "e5f62740d3f9d60f6ab3c90feaba1d031e57427e"
+EXPECTED_DEPLOY_PARENT = "cab0fcbc29c513fe17c9b68a7438ea424a349036"
 _FIXED_PRODUCT_AUTHORITY_FIELDS = (
     "builder",
     "controller",
@@ -77,24 +77,23 @@ ROLE_ORDER = (
     ("/etc/systemd/system/myuna-telegram-owner-runtime-dev.service.d/zzzzzzzzzzz-p07-hybrid-external-v1.conf", "telegram_runtime_dropin"),
     ("/etc/myuna-telegram-gateway/p07-owner-private-memory-selector-v4.json", "memory_selector_v4"),
 )
-ARCHIVE_NAME = "myuna-astrbot-telegram-dev.pre-source-command-20260826T045000Z"
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
 
-_TARGET_CONTAINER = {
+_OLD_CONTAINER = {
     "command_digest": "d8b8f6ade2b40236d6eed993eca8737de5cdf8c1d9e1d7d0948c35a5cc9596a2",
-    "container_id": "7e58b9c7cb9f508bf4ab5f9401f86d0b1cfa0845b24fa2ac4beadcb8ae45f610",
+    "container_id": "5e5d94df745c87652217f50619ff64023e9dacad2e875479d9a32e1c715f0940",
     "effect_digest": "1887d8181cb790d67d15c990d86171dd36bd00140202aca9bf0dafb1bf251fae",
     "effect_environment_digest": "0e1e530e72a07fc1282610268e2323d731242d64ea5ba91e9807921c7660cb1e",
-    "effect_host_digest": "be8fa2878126856ab5d48bed1466ceede49aae5231069fa77b70e93eb9fc1d9c",
-    "effect_mounts_digest": "5fb29c83cdbd9f8bb90b9790ffb362579ab02d9cf2ee655472ef14d0579e05a4",
+    "effect_host_digest": "582df4975667930ca05cc8ac91690257acf3c1385bc4d6555624a6b0b810cc29",
+    "effect_mounts_digest": "8a5bad38ad5987ba0ccba498848b6d2fce1abda9c76a1ac7ce068ae442f4575b",
     "health": "unhealthy",
-    "host_config_digest": "004ffd5437f59b2bc55ab3ca56a3227d318ad9fb962f2178b901de7b97be7bea",
+    "host_config_digest": "6e2eff170fbf6ede9d24151223d2cfed4dfe0cde5e3249a1266bdae7e18b0fd1",
     "image": "myuna/astrbot-phase-f-deterministic@sha256:ef2d2f966745b6d2e05b3286698bf6601a9a2c478f762b6b0df9703eee48d214",
-    "mounts_digest": "f2a6cee29aefa34877187ede627fdd368b91719d8b4e6b8248c6a15a77864d4d",
+    "mounts_digest": "92fc4d7d4fac55effa4526777c283dddc7f1f8c6ef4de34afb7c6f5c7b93d025",
     "name": boot.CONTAINER,
     "network_names": (boot.NETWORK,),
-    "networks_digest": "d34dec791d65a71ca52282b02ef8ec28587d4845400e026ee153925b9eda9f45",
+    "networks_digest": "d0b4c55dae4b10d628c3eff4396a8323f21d7eea76c0ce39f80923dd5dd793ed",
     "plan_digest": "bed60d0c4f567e389d0c5aa54b0300944f668c577b70d07ad268c9cec653d21a",
     "project": boot.COMPOSE_PROJECT,
     "restart_maximum_retry_count": 0,
@@ -103,16 +102,6 @@ _TARGET_CONTAINER = {
     "status": "exited",
     "target_config_digest": "0710c79b11aa9bcdccb6c73c83b60ac05626d16e33344ce17225136d0fed281c",
     "user": "988:982",
-}
-_ARCHIVE_CONTAINER = {
-    **_TARGET_CONTAINER,
-    "container_id": "5e5d94df745c87652217f50619ff64023e9dacad2e875479d9a32e1c715f0940",
-    "effect_host_digest": "582df4975667930ca05cc8ac91690257acf3c1385bc4d6555624a6b0b810cc29",
-    "effect_mounts_digest": "8a5bad38ad5987ba0ccba498848b6d2fce1abda9c76a1ac7ce068ae442f4575b",
-    "host_config_digest": "6e2eff170fbf6ede9d24151223d2cfed4dfe0cde5e3249a1266bdae7e18b0fd1",
-    "mounts_digest": "92fc4d7d4fac55effa4526777c283dddc7f1f8c6ef4de34afb7c6f5c7b93d025",
-    "name": ARCHIVE_NAME,
-    "networks_digest": "d0b4c55dae4b10d628c3eff4396a8323f21d7eea76c0ce39f80923dd5dd793ed",
 }
 _NETWORK = {
     "attachable": False,
@@ -129,6 +118,17 @@ _NETWORK = {
 }
 _TARGET_CONTAINER_CAUSES = frozenset(
     {
+        "archive_old_collision_rejected",
+        "archive_old_command_rejected",
+        "archive_old_identity_rejected",
+        "archive_old_poststate_rejected",
+        "archive_old_state_rejected",
+        "archive_old_unclassified_rejected",
+        "target_create_command_rejected",
+        "target_create_identity_rejected",
+        "target_create_poststate_rejected",
+        "target_create_prestate_rejected",
+        "target_create_unclassified_rejected",
         "target_container_unclassified_rejected",
         "target_policy_command_rejected",
         "target_policy_identity_rejected",
@@ -318,13 +318,18 @@ class Preflight:
     authority: Mapping[str, object]
     current: tuple[SealedMember, ...]
     target_members: tuple[SealedMember, ...]
+    old: boot.PhaseFContainerProjection
+    target_authority: boot.PhaseFTargetContainer
     target: boot.PhaseFContainerProjection | None
-    archive: boot.PhaseFContainerProjection
+    archive: boot.PhaseFContainerProjection | None
     network: boot.PhaseFNetworkProjection
+    topology: str
 
 
 class Effects(Protocol):
     def preflight(self, mode: str) -> Preflight: ...
+    def archive_old(self, state: Preflight) -> Preflight: ...
+    def create_target(self, state: Preflight) -> Preflight: ...
     def write_member(self, member: SealedMember) -> None: ...
     def write_new_unit(self, state: Preflight) -> None: ...
     def daemon_reload(self) -> None: ...
@@ -415,6 +420,77 @@ def _sealed_members(authority: Mapping[str, object]) -> tuple[SealedMember, ...]
         "seven_role_authority_rejected",
     )
     return tuple(result)
+
+
+def _target_matches_authority(
+    authority: boot.PhaseFTargetContainer,
+    observed: boot.PhaseFContainerProjection | None,
+) -> bool:
+    """Admit a dynamic-ID TARGET only through its complete source projection."""
+
+    effect = authority.effect
+    if observed is None or type(effect) is not dict:
+        return False
+    expected = {
+        "command_digest": effect.get("command_sha256"),
+        "effect_digest": effect.get("effect_sha256"),
+        "effect_environment_digest": effect.get("environment_sha256"),
+        "effect_host_digest": effect.get("host_sha256"),
+        "effect_mounts_digest": effect.get("mounts_sha256"),
+        "image": authority.image,
+        "name": boot.CONTAINER,
+        "network_names": (boot.NETWORK,),
+        "plan_digest": authority.plan_digest,
+        "project": boot.COMPOSE_PROJECT,
+        "service": boot.COMPOSE_SERVICE,
+        "target_config_digest": authority.target_config_digest,
+        "user": authority.user,
+    }
+    return (
+        all(getattr(observed, key) == value for key, value in expected.items())
+        and observed.status in {"created", "exited", "running"}
+        and (
+            observed.restart_policy,
+            observed.restart_maximum_retry_count,
+        )
+        in {
+            ("no", 0),
+            (
+                boot.EXPECTED_RESTART_POLICY,
+                boot.EXPECTED_RESTART_MAXIMUM_RETRY_COUNT,
+            ),
+        }
+    )
+
+
+def _container_effect_cause(operation: str, exc: BaseException) -> str:
+    lower = str(exc) if isinstance(exc, boot.ResumeRejected) else ""
+    mappings = {
+        "archive": {
+            "phase_f_rename_collision_ambiguous": "archive_old_collision_rejected",
+            "phase_f_rename_identity_rejected": "archive_old_identity_rejected",
+            "phase_f_rename_poststate_rejected": "archive_old_poststate_rejected",
+            "phase_f_rename_state_rejected": "archive_old_state_rejected",
+        },
+        "create": {
+            "phase_f_create_archive_drift": "target_create_identity_rejected",
+            "phase_f_create_canonical_collision": "target_create_identity_rejected",
+            "phase_f_create_network_poststate_rejected": "target_create_poststate_rejected",
+            "phase_f_create_network_prestate_rejected": "target_create_prestate_rejected",
+            "phase_f_create_poststate_rejected": "target_create_poststate_rejected",
+            "phase_f_external_network_not_ready": "target_create_prestate_rejected",
+            "phase_f_runtime_access_rejected": "target_create_prestate_rejected",
+            "phase_f_runtime_identity_model_rejected": "target_create_prestate_rejected",
+            "phase_f_runtime_resource_acl_rejected": "target_create_prestate_rejected",
+            "phase_f_runtime_resource_metadata_rejected": "target_create_prestate_rejected",
+            "phase_f_target_effect_archive_rejected": "target_create_identity_rejected",
+            "phase_f_target_effect_prestate_rejected": "target_create_prestate_rejected",
+        },
+    }
+    cause = mappings[operation].get(lower)
+    if cause is None and re.fullmatch(r"fixed_command_failed:docker:-?\d+", lower):
+        cause = f"{'archive_old' if operation == 'archive' else 'target_create'}_command_rejected"
+    return cause or f"{'archive_old' if operation == 'archive' else 'target_create'}_unclassified_rejected"
 
 
 class HostEffects:
@@ -534,6 +610,35 @@ class HostEffects:
         return boot.run(["/usr/bin/systemctl", "is-active", unit], check=False)
 
     @staticmethod
+    def _governed_container_names() -> tuple[str, ...]:
+        try:
+            output = boot.run(
+                [
+                    "/usr/bin/docker",
+                    "container",
+                    "ls",
+                    "--all",
+                    "--format",
+                    "{{.Names}}",
+                ]
+            )
+        except Exception:
+            raise CutoverRejected("container_census_rejected") from None
+        names = tuple(sorted(line.strip() for line in output.splitlines() if line.strip()))
+        _require(
+            len(names) == len(set(names))
+            and all("\x00" not in name and "\r" not in name for name in names),
+            "container_census_rejected",
+        )
+        return tuple(
+            name
+            for name in names
+            if name == boot.CONTAINER
+            or re.fullmatch(re.escape(boot.ARCHIVE_PREFIX) + r"[0-9a-f]{16}", name)
+            is not None
+        )
+
+    @staticmethod
     def _member_projection(member: SealedMember) -> dict[str, object]:
         return {
             "gid": member.gid,
@@ -564,16 +669,56 @@ class HostEffects:
             current_matches.append(observed == self._member_projection(current_member))
             target_matches.append(observed == self._member_projection(target_member))
         unit_sha = sha256(_read_regular(UNIT_PATH, mode=0o644, uid=0)).hexdigest()
-        target = boot.phase_f_container_projection(boot.CONTAINER)
-        archive = boot.phase_f_container_projection(ARCHIVE_NAME)
-        network = boot.phase_f_network_projection()
-        _require(archive is not None and network is not None, "container_topology_rejected")
-        expected_target = boot.PhaseFContainerProjection(**_TARGET_CONTAINER)
-        expected_archive = boot.PhaseFContainerProjection(**_ARCHIVE_CONTAINER)
+        expected_old = boot.PhaseFContainerProjection(**_OLD_CONTAINER)
         expected_network = boot.PhaseFNetworkProjection(**_NETWORK)
+        try:
+            target_authority = self._builder.verified_target_container_authority(
+                authority,
+                expected_old,
+                expected_network,
+            )
+        except Exception:
+            raise CutoverRejected("target_container_authority_rejected") from None
+        archive_name = target_authority.archive_name
+        expected_archive = replace(expected_old, name=archive_name)
+        target = boot.phase_f_container_projection(boot.CONTAINER)
+        archive = boot.phase_f_container_projection(archive_name)
+        network = boot.phase_f_network_projection()
+        governed_names = self._governed_container_names()
+        _require(network is not None, "container_topology_rejected")
+        same_network = boot._phase_f_same_network_object(expected_network, network)
+        old_only = (
+            target == expected_old
+            and archive is None
+            and network == expected_network
+            and governed_names == (boot.CONTAINER,)
+        )
+        archive_only = (
+            target is None
+            and archive == expected_archive
+            and network == expected_network
+            and governed_names == (archive_name,)
+        )
+        archive_target = (
+            archive == expected_archive
+            and _target_matches_authority(target_authority, target)
+            and same_network
+            and target is not None
+            and network.member_container_ids in {(), (target.container_id,)}
+            and governed_names == tuple(sorted((archive_name, boot.CONTAINER)))
+        )
+        topology = (
+            "old_only"
+            if old_only
+            else "archive_only"
+            if archive_only
+            else "archive_target"
+            if archive_target
+            else "rejected"
+        )
         if mode in {"preflight", "cutover"}:
             _require(all(current_matches) and unit_sha == OLD_UNIT_SHA256, "cutover_file_prestate_rejected")
-            _require(target == expected_target and archive == expected_archive and network == expected_network, "cutover_container_prestate_rejected")
+            _require(topology == "old_only", "cutover_container_prestate_rejected")
             _require(all(self._service_state(unit) in {"inactive", "failed"} for unit in SERVICES), "cutover_service_prestate_rejected")
         elif mode == "rollback":
             _require(
@@ -582,29 +727,14 @@ class HostEffects:
             )
             _require(unit_sha in {OLD_UNIT_SHA256, sha256(new_unit).hexdigest()}, "rollback_unit_prestate_rejected")
             _require(
-                archive == expected_archive
-                and boot._phase_f_same_network_object(expected_network, network)
-                and network.member_container_ids
-                in {(), (expected_target.container_id,)},
+                topology in {"old_only", "archive_only", "archive_target"},
                 "rollback_container_prestate_rejected",
             )
-            if target is not None:
-                _require(
-                    boot._phase_f_same_object(
-                        expected_target,
-                        target,
-                        name=boot.CONTAINER,
-                        allow_status_change=True,
-                        allow_policy_change=True,
-                        allow_network_runtime_change=True,
-                    ),
-                    "rollback_target_identity_rejected",
-                )
-            else:
+            if topology in {"old_only", "archive_only"}:
                 _require(
                     network.member_container_ids == ()
                     and all(self._service_state(unit) in {"inactive", "failed"} for unit in SERVICES),
-                    "rollback_missing_target_manual_required",
+                    "rollback_stopped_topology_rejected",
                 )
         else:
             raise CutoverRejected("mode_rejected")
@@ -615,10 +745,56 @@ class HostEffects:
             authority,
             current,
             target_members,
+            expected_old,
+            target_authority,
             target,
             archive,
             expected_network,
+            topology,
         )
+
+    def archive_old(self, state: Preflight) -> Preflight:
+        _require(
+            state.topology == "old_only"
+            and state.target == state.old
+            and state.archive is None,
+            "archive_old_prestate_rejected",
+        )
+        try:
+            archived = boot.phase_f_rename_container_exact(
+                state.old,
+                source_name=boot.CONTAINER,
+                target_name=state.target_authority.archive_name,
+            )
+        except Exception as exc:
+            raise CutoverRejected(_container_effect_cause("archive", exc)) from None
+        return replace(
+            state,
+            target=None,
+            archive=archived,
+            topology="archive_only",
+        )
+
+    def create_target(self, state: Preflight) -> Preflight:
+        _require(
+            state.topology == "archive_only"
+            and state.target is None
+            and state.archive is not None,
+            "target_create_prestate_rejected",
+        )
+        try:
+            target = boot.phase_f_create_target_stopped(
+                state.target_authority,
+                expected_network=state.network,
+                archived_old=state.archive,
+            )
+        except Exception as exc:
+            raise CutoverRejected(_container_effect_cause("create", exc)) from None
+        _require(
+            _target_matches_authority(state.target_authority, target),
+            "target_create_poststate_rejected",
+        )
+        return replace(state, target=target, topology="archive_target")
 
     def write_new_unit(self, state: Preflight) -> None:
         _atomic_file(UNIT_PATH, state.new_unit, mode=0o644, uid=0, gid=0)
@@ -675,9 +851,15 @@ class HostEffects:
         _require(self._service_state(unit) in {"inactive", "failed"}, "service_stop_poststate_rejected")
 
     def stop_target(self, state: Preflight) -> None:
+        if state.topology == "old_only":
+            return
         observed = boot.phase_f_container_projection(boot.CONTAINER)
         if observed is None:
             return
+        _require(
+            _target_matches_authority(state.target_authority, observed),
+            "rollback_target_identity_rejected",
+        )
         boot.phase_f_stop_container_exact(observed, name=boot.CONTAINER)
 
     def write_member(self, member: SealedMember) -> None:
@@ -693,21 +875,60 @@ class HostEffects:
 
     def restore_old_container(self, state: Preflight) -> None:
         observed = boot.phase_f_container_projection(boot.CONTAINER)
+        archive = boot.phase_f_container_projection(
+            state.target_authority.archive_name
+        )
+        expected_archive = replace(
+            state.old,
+            name=state.target_authority.archive_name,
+        )
+        if observed == state.old and archive is None:
+            return
+        _require(
+            archive == expected_archive,
+            "rollback_archive_identity_rejected",
+        )
         if observed is not None:
+            _require(
+                _target_matches_authority(state.target_authority, observed),
+                "rollback_target_identity_rejected",
+            )
             boot.phase_f_remove_container_exact(observed, expected_network=state.network)
-        boot.phase_f_rename_container_exact(state.archive, source_name=ARCHIVE_NAME, target_name=boot.CONTAINER)
+        boot.phase_f_rename_container_exact(
+            expected_archive,
+            source_name=state.target_authority.archive_name,
+            target_name=boot.CONTAINER,
+        )
 
     def verify_new_running(self, state: Preflight) -> None:
         _require(sha256(_read_regular(UNIT_PATH, mode=0o644, uid=0)).hexdigest() == sha256(state.new_unit).hexdigest(), "new_unit_convergence_rejected")
         _require(self._service_state(CORE_SERVICE) == "active" and self._service_state(RUNTIME_SOCKET) == "active", "new_service_convergence_rejected")
         target = boot.phase_f_container_projection(boot.CONTAINER)
-        _require(target is not None and target.status == "running" and target.health == "healthy", "new_container_convergence_rejected")
+        _require(
+            _target_matches_authority(state.target_authority, target)
+            and target is not None
+            and target.container_id == state.target.container_id
+            and target.status == "running"
+            and target.health == "healthy",
+            "new_container_convergence_rejected",
+        )
 
     def verify_old_stopped(self, state: Preflight) -> None:
         _require(sha256(_read_regular(UNIT_PATH, mode=0o644, uid=0)).hexdigest() == OLD_UNIT_SHA256, "old_unit_convergence_rejected")
         _require(all(self._service_state(unit) in {"inactive", "failed"} for unit in SERVICES), "old_service_convergence_rejected")
         old = boot.phase_f_container_projection(boot.CONTAINER)
-        _require(old is not None and old.container_id == state.archive.container_id and old.status in {"created", "exited"}, "old_container_convergence_rejected")
+        archive = boot.phase_f_container_projection(
+            state.target_authority.archive_name
+        )
+        network = boot.phase_f_network_projection()
+        _require(
+            old == state.old
+            and archive is None
+            and network == state.network
+            and self._governed_container_names() == (boot.CONTAINER,)
+            and old.status in {"created", "exited"},
+            "old_container_convergence_rejected",
+        )
 
 
 def execute(mode: str, effects: Effects) -> dict[str, object]:
@@ -719,6 +940,10 @@ def execute(mode: str, effects: Effects) -> dict[str, object]:
     if mode == "cutover":
         boundary = "preflight"
         try:
+            boundary = "archive_old"
+            state = effects.archive_old(state)
+            boundary = "create_target"
+            state = effects.create_target(state)
             for member in state.target_members:
                 boundary = f"materialize:{member.role}"
                 effects.write_member(member)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+from dataclasses import replace
 from hashlib import sha256
 import importlib.util
 import json
@@ -18,7 +19,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 CORE = Path("/srv/myuna/repos/core")
 sys.path.insert(0, (ROOT / "scripts").as_posix())
-ACCEPTED_PARENT = "e5f62740d3f9d60f6ab3c90feaba1d031e57427e"
+ACCEPTED_PARENT = "cab0fcbc29c513fe17c9b68a7438ea424a349036"
 CORE_COMMIT = "4c13c0b20552b5d8a8720f180d0569405fed00b0"
 CONFIG_SHA256 = "e" * 64
 MODULE_PATH = ROOT / "scripts/build_telegram_r5_controller_release_v1.py"
@@ -646,6 +647,79 @@ class TelegramR5ControllerReleaseTests(unittest.TestCase):
                 selection["public_package_sha256"],
                 manifest["paired_source_package_sha256"],
             )
+
+    def test_builder_projects_one_dynamic_target_from_verified_authority(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output, digest, _expected = self.build(Path(temporary), 19003)
+            authority = module.verified_controller_authority(output, digest)
+            old = module.boot.PhaseFContainerProjection(
+                container_id="1" * 64,
+                name=module.boot.CONTAINER,
+                image="myuna/astrbot-phase-f-deterministic@sha256:" + "2" * 64,
+                status="exited",
+                health="unhealthy",
+                restart_policy="no",
+                restart_maximum_retry_count=0,
+                project=module.boot.COMPOSE_PROJECT,
+                service=module.boot.COMPOSE_SERVICE,
+                plan_digest=product.ATTEMPT5_PRODUCT_ENTRY_PLAN_SHA256,
+                target_config_digest="3" * 64,
+                user=product.TARGET_USER,
+                command_digest="4" * 64,
+                host_config_digest="5" * 64,
+                mounts_digest="6" * 64,
+                networks_digest="7" * 64,
+                network_names=(module.boot.NETWORK,),
+            )
+            network = module.boot.PhaseFNetworkProjection(
+                network_id="8" * 64,
+                name=module.boot.NETWORK,
+                driver="bridge",
+                internal=False,
+                attachable=False,
+                ingress=False,
+                enable_ipv6=False,
+                options_digest="9" * 64,
+                labels_digest="a" * 64,
+                ipam_digest="b" * 64,
+                member_container_ids=(),
+            )
+            target = module.verified_target_container_authority(
+                authority,
+                old,
+                network,
+            )
+            archived = replace(old, name=target.archive_name)
+            self.assertTrue(target.archive_name.startswith(module.boot.ARCHIVE_PREFIX))
+            self.assertEqual(target.effect["archive_container_id"], old.container_id)
+            self.assertEqual(
+                target.effect["archive_projection_sha256"],
+                module.boot.phase_f_container_identity_sha256(archived),
+            )
+            self.assertEqual(
+                target.effect["network_projection_sha256"],
+                module.boot.phase_f_network_identity_sha256(network),
+            )
+            self.assertNotIn("container_id", target.__dataclass_fields__)
+
+            with self.assertRaises(module.TelegramR5ControllerReleaseRejected):
+                module.verified_target_container_authority(
+                    authority,
+                    replace(
+                        old,
+                        name=module.boot.ARCHIVE_PREFIX + "c" * 16,
+                    ),
+                    network,
+                )
+            with self.assertRaises(module.TelegramR5ControllerReleaseRejected):
+                module.verified_target_container_authority(
+                    authority,
+                    old,
+                    replace(
+                        network,
+                        member_container_ids=(old.container_id,),
+                    ),
+                )
 
     def test_only_exact_direct_child_source_is_accepted(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

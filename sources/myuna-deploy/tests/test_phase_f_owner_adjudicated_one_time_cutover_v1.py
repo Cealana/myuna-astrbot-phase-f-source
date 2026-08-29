@@ -49,19 +49,22 @@ def synthetic_state(seed: int = 11) -> module.Preflight:
         )
         for index, member in enumerate(current)
     )
-    target = module.boot.PhaseFContainerProjection(**module._TARGET_CONTAINER)
-    archive = module.boot.PhaseFContainerProjection(**module._ARCHIVE_CONTAINER)
+    old = module.boot.PhaseFContainerProjection(**module._OLD_CONTAINER)
+    archive = module.replace(old, name=module.boot.ARCHIVE_PREFIX + "f" * 16)
     network = module.boot.PhaseFNetworkProjection(**module._NETWORK)
     return module.Preflight(
         release_root=Path("/synthetic/releases") / (f"{seed:064x}"[-64:]),
         new_unit=f"new-unit:{seed}\n".encode("ascii"),
         old_unit=f"old-unit:{seed}\n".encode("ascii"),
-        authority={"seed": seed},
+        authority={"authority_sha256": "f" * 64, "seed": seed},
         current=current,
         target_members=target_members,
-        target=target,
-        archive=archive,
+        old=old,
+        target_authority=mock.Mock(archive_name=archive.name),
+        target=old,
+        archive=None,
         network=network,
+        topology="old_only",
     )
 
 
@@ -88,6 +91,22 @@ class FakeEffects:
         if self.reject_preflight is not None:
             raise module.CutoverRejected(f"substitution:{self.reject_preflight}")
         return self.state
+
+    def archive_old(self, state: module.Preflight) -> module.Preflight:
+        self._call("archive_old")
+        return module.replace(
+            state,
+            target=None,
+            topology="archive_only",
+        )
+
+    def create_target(self, state: module.Preflight) -> module.Preflight:
+        self._call("create_target")
+        return module.replace(
+            state,
+            target=self.state.target,
+            topology="archive_target",
+        )
 
     def write_new_unit(self, _state: module.Preflight) -> None:
         self._call("write_new_unit")
@@ -567,8 +586,15 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
         effects = module.HostEffects(selection)
         projections = {
             module.boot.CONTAINER: None,
-            module.ARCHIVE_NAME: synthetic.archive,
+            synthetic.target_authority.archive_name: module.replace(
+                synthetic.old,
+                name=synthetic.target_authority.archive_name,
+            ),
         }
+        effects._builder = mock.Mock()
+        effects._builder.verified_target_container_authority.return_value = (
+            synthetic.target_authority
+        )
         with (
             mock.patch.object(
                 effects,
@@ -588,13 +614,24 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
             mock.patch.object(module.boot, "phase_f_container_projection", side_effect=lambda name: projections[name]),
             mock.patch.object(module.boot, "phase_f_network_projection", return_value=synthetic.network),
             mock.patch.object(effects, "_service_state", return_value="inactive"),
+            mock.patch.object(
+                effects,
+                "_governed_container_names",
+                return_value=(synthetic.target_authority.archive_name,),
+            ),
         ):
             partial = effects.preflight("rollback")
             self.assertIsNone(partial.target)
             with self.assertRaisesRegex(module.CutoverRejected, "cutover_file_prestate_rejected"):
                 effects.preflight("cutover")
         with (
-            mock.patch.object(module.boot, "phase_f_container_projection", return_value=None),
+            mock.patch.object(
+                module.boot,
+                "phase_f_container_projection",
+                side_effect=lambda name: (
+                    None if name == module.boot.CONTAINER else partial.archive
+                ),
+            ),
             mock.patch.object(module.boot, "phase_f_remove_container_exact") as remove,
             mock.patch.object(module.boot, "phase_f_rename_container_exact") as rename,
         ):
@@ -602,17 +639,27 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
         remove.assert_not_called()
         rename.assert_called_once_with(
             partial.archive,
-            source_name=module.ARCHIVE_NAME,
+            source_name=partial.target_authority.archive_name,
             target_name=module.boot.CONTAINER,
         )
-        restored = module.boot.PhaseFContainerProjection(
-            **{**module._ARCHIVE_CONTAINER, "name": module.boot.CONTAINER}
-        )
+        restored = synthetic.old
         with (
             mock.patch.object(module, "_read_regular", return_value=synthetic.old_unit),
             mock.patch.object(module, "OLD_UNIT_SHA256", old_sha),
             mock.patch.object(effects, "_service_state", return_value="inactive"),
-            mock.patch.object(module.boot, "phase_f_container_projection", return_value=restored),
+            mock.patch.object(
+                module.boot,
+                "phase_f_container_projection",
+                side_effect=lambda name: (
+                    restored if name == module.boot.CONTAINER else None
+                ),
+            ),
+            mock.patch.object(module.boot, "phase_f_network_projection", return_value=synthetic.network),
+            mock.patch.object(
+                effects,
+                "_governed_container_names",
+                return_value=(module.boot.CONTAINER,),
+            ),
         ):
             effects.verify_old_stopped(partial)
 
@@ -636,15 +683,156 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
         self.assertEqual(raised.exception.boundary, "restore:old_container")
         self.assertEqual(raised.exception.effect_code, "lost_return")
 
+    def test_dynamic_target_identity_is_bound_by_source_projection_not_old_id(self) -> None:
+        synthetic = synthetic_state()
+        authority = mock.Mock(
+            image="myuna/astrbot-phase-f-deterministic@sha256:" + "1" * 64,
+            plan_digest="2" * 64,
+            target_config_digest="3" * 64,
+            user="988:982",
+            effect={
+                "command_sha256": "4" * 64,
+                "effect_sha256": "5" * 64,
+                "environment_sha256": "6" * 64,
+                "host_sha256": "7" * 64,
+                "mounts_sha256": "8" * 64,
+            },
+        )
+        base = {
+            **module._OLD_CONTAINER,
+            "command_digest": "4" * 64,
+            "effect_digest": "5" * 64,
+            "effect_environment_digest": "6" * 64,
+            "effect_host_digest": "7" * 64,
+            "effect_mounts_digest": "8" * 64,
+            "image": authority.image,
+            "plan_digest": authority.plan_digest,
+            "target_config_digest": authority.target_config_digest,
+        }
+        first = module.boot.PhaseFContainerProjection(
+            **{**base, "container_id": "9" * 64}
+        )
+        second = module.boot.PhaseFContainerProjection(
+            **{**base, "container_id": "a" * 64}
+        )
+        self.assertTrue(module._target_matches_authority(authority, first))
+        self.assertTrue(module._target_matches_authority(authority, second))
+        self.assertNotEqual(first.container_id, second.container_id)
+        self.assertNotEqual(first.container_id, synthetic.old.container_id)
+        self.assertFalse(
+            module._target_matches_authority(
+                authority,
+                module.replace(second, effect_digest="b" * 64),
+            )
+        )
+
+    def test_archive_create_effects_are_at_most_once_and_typed(self) -> None:
+        synthetic = synthetic_state()
+        archived = module.replace(
+            synthetic.old,
+            name=synthetic.target_authority.archive_name,
+        )
+        effects = module.HostEffects(
+            module.ReleaseSelection("a" * 40, "b" * 40, "c" * 64, "d" * 64)
+        )
+        with mock.patch.object(
+            module.boot,
+            "phase_f_rename_container_exact",
+            return_value=archived,
+        ) as rename:
+            archive_state = effects.archive_old(synthetic)
+        self.assertEqual(archive_state.topology, "archive_only")
+        rename.assert_called_once_with(
+            synthetic.old,
+            source_name=module.boot.CONTAINER,
+            target_name=synthetic.target_authority.archive_name,
+        )
+
+        created = module.replace(synthetic.old, container_id="a" * 64)
+        with (
+            mock.patch.object(
+                module.boot,
+                "phase_f_create_target_stopped",
+                return_value=created,
+            ) as create,
+            mock.patch.object(module, "_target_matches_authority", return_value=True),
+        ):
+            created_state = effects.create_target(archive_state)
+        self.assertEqual(created_state.topology, "archive_target")
+        self.assertEqual(created_state.target.container_id, "a" * 64)
+        create.assert_called_once_with(
+            synthetic.target_authority,
+            expected_network=synthetic.network,
+            archived_old=archived,
+        )
+
+        for operation, state, lower, expected in (
+            (
+                "archive",
+                synthetic,
+                module.boot.ResumeRejected("phase_f_rename_poststate_rejected"),
+                "archive_old_poststate_rejected",
+            ),
+            (
+                "create",
+                archive_state,
+                module.boot.ResumeRejected("phase_f_create_poststate_rejected"),
+                "target_create_poststate_rejected",
+            ),
+        ):
+            with self.subTest(operation=operation):
+                patched = (
+                    "phase_f_rename_container_exact"
+                    if operation == "archive"
+                    else "phase_f_create_target_stopped"
+                )
+                with mock.patch.object(module.boot, patched, side_effect=lower) as call:
+                    with self.assertRaises(module.CutoverRejected) as raised:
+                        (
+                            effects.archive_old(state)
+                            if operation == "archive"
+                            else effects.create_target(state)
+                        )
+                self.assertEqual(raised.exception.code, expected)
+                self.assertEqual(call.call_count, 1)
+
+        for boundary in ("archive_old", "create_target"):
+            fake = FakeEffects(fail_call=boundary)
+            with self.assertRaises(module.ManualRequired) as raised:
+                module.execute("cutover", fake)
+            self.assertEqual(fake.calls.count(boundary), 1)
+            self.assertEqual(raised.exception.boundary, boundary)
+            self.assertNotIn("write_member:target:role-0", fake.calls)
+
+    def test_container_census_excludes_inactive_historical_names_only(self) -> None:
+        source_archive = module.boot.ARCHIVE_PREFIX + "a" * 16
+        output = "\n".join(
+            (
+                module.boot.CONTAINER,
+                module.boot.ARCHIVE_PREFIX + "durable-20260730T100006Z",
+                module.boot.ARCHIVE_PREFIX + "recovery-20260730T164327",
+                source_archive,
+            )
+        )
+        with mock.patch.object(module.boot, "run", return_value=output):
+            self.assertEqual(
+                module.HostEffects._governed_container_names(),
+                (module.boot.CONTAINER, source_archive),
+            )
+
     def test_forward_requires_seven_current_and_rollback_admits_all_128_mixtures(self) -> None:
         synthetic = synthetic_state()
         old_sha = sha256(synthetic.old_unit).hexdigest()
         selection = module.ReleaseSelection("a" * 40, "b" * 40, "c" * 64, "d" * 64)
         effects = module.HostEffects(selection)
         projections = {
-            module.boot.CONTAINER: synthetic.target,
-            module.ARCHIVE_NAME: synthetic.archive,
+            module.boot.CONTAINER: synthetic.old,
+            synthetic.target_authority.archive_name: None,
         }
+        effects._builder = mock.Mock()
+        effects._builder.verified_target_container_authority.return_value = (
+            synthetic.target_authority
+        )
 
         def projection(member: module.SealedMember) -> dict[str, object]:
             return {
@@ -655,7 +843,15 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
                 "uid": member.uid,
             }
 
-        def preflight(observed: dict[Path, dict[str, object]], mode: str) -> module.Preflight:
+        def preflight(
+            observed: dict[Path, dict[str, object]],
+            mode: str,
+            *,
+            containers: dict[str, module.boot.PhaseFContainerProjection | None] = projections,
+            network: module.boot.PhaseFNetworkProjection = synthetic.network,
+            governed: tuple[str, ...] = (module.boot.CONTAINER,),
+            target_matches: bool = False,
+        ) -> module.Preflight:
             with ExitStack() as stack:
                 stack.enter_context(
                     mock.patch.object(
@@ -677,11 +873,25 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
                     mock.patch.object(
                         module.boot,
                         "phase_f_container_projection",
-                        side_effect=lambda name: projections[name],
+                        side_effect=lambda name: containers.get(name),
                     )
                 )
-                stack.enter_context(mock.patch.object(module.boot, "phase_f_network_projection", return_value=synthetic.network))
+                stack.enter_context(mock.patch.object(module.boot, "phase_f_network_projection", return_value=network))
                 stack.enter_context(mock.patch.object(effects, "_service_state", return_value="inactive"))
+                stack.enter_context(
+                    mock.patch.object(
+                        effects,
+                        "_governed_container_names",
+                        return_value=governed,
+                    )
+                )
+                stack.enter_context(
+                    mock.patch.object(
+                        module,
+                        "_target_matches_authority",
+                        return_value=target_matches,
+                    )
+                )
                 stack.enter_context(mock.patch.object(module, "_file_projection", side_effect=lambda path: observed[path]))
                 return effects.preflight(mode)
 
@@ -710,6 +920,56 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
             module.CutoverRejected, "rollback_file_prestate_rejected"
         ):
             preflight(third, "rollback")
+
+        all_current = {
+            member.path: projection(member) for member in synthetic.current
+        }
+        with self.assertRaisesRegex(
+            module.CutoverRejected, "rollback_container_prestate_rejected"
+        ):
+            preflight(
+                all_current,
+                "rollback",
+                governed=(
+                    module.boot.CONTAINER,
+                    module.boot.ARCHIVE_PREFIX + "0" * 16,
+                ),
+            )
+        wrong_network = module.replace(synthetic.network, network_id="f" * 64)
+        with self.assertRaisesRegex(
+            module.CutoverRejected, "rollback_container_prestate_rejected"
+        ):
+            preflight(all_current, "rollback", network=wrong_network)
+
+        dynamic_target = module.replace(
+            synthetic.old,
+            container_id="a" * 64,
+            target_config_digest="b" * 64,
+        )
+        archive = module.replace(
+            synthetic.old,
+            name=synthetic.target_authority.archive_name,
+        )
+        archive_target = {
+            module.boot.CONTAINER: dynamic_target,
+            synthetic.target_authority.archive_name: archive,
+        }
+        admitted = preflight(
+            all_current,
+            "rollback",
+            containers=archive_target,
+            governed=tuple(
+                sorted(
+                    (
+                        module.boot.CONTAINER,
+                        synthetic.target_authority.archive_name,
+                    )
+                )
+            ),
+            target_matches=True,
+        )
+        self.assertEqual(admitted.topology, "archive_target")
+        self.assertEqual(admitted.target.container_id, "a" * 64)
 
     def test_per_role_atomic_fault_and_lost_return_matrix_is_single_dispatch(self) -> None:
         stages = (
@@ -798,6 +1058,8 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
 
     def test_cutover_fault_matrix_stops_before_later_forward_effects(self) -> None:
         forward = (
+            "archive_old",
+            "create_target",
             *[f"write_member:target:role-{index}" for index in range(7)],
             "write_new_unit",
             "daemon_reload",
@@ -886,9 +1148,10 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
         self.assertEqual(observations[0], observations[1])
         calls = observations[0][1]
         self.assertEqual(
-            calls[1:8],
+            calls[3:10],
             [f"write_member:target:role-{index}" for index in range(7)],
         )
+        self.assertEqual(calls[1:3], ["archive_old", "create_target"])
         self.assertLess(calls.index("write_member:target:role-6"), calls.index("write_new_unit"))
         self.assertLess(calls.index("write_new_unit"), calls.index("daemon_reload"))
         self.assertEqual(calls.count("daemon_reload"), 1)
@@ -939,13 +1202,9 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
     def test_fixed_identity_constants_and_sealed_members_are_unique(self) -> None:
         self.assertEqual(
             module.EXPECTED_DEPLOY_PARENT,
-            "e5f62740d3f9d60f6ab3c90feaba1d031e57427e",
+            "cab0fcbc29c513fe17c9b68a7438ea424a349036",
         )
-        self.assertEqual(len(module._TARGET_CONTAINER["container_id"]), 64)
-        self.assertNotEqual(
-            module._TARGET_CONTAINER["container_id"],
-            module._ARCHIVE_CONTAINER["container_id"],
-        )
+        self.assertEqual(len(module._OLD_CONTAINER["container_id"]), 64)
         self.assertEqual(
             module.CURRENT_CONTROLLER_RELEASE,
             "b78ef052c838dc896f98cb9ef8d2a0c96ae55b2d1146ede39d8e8753a976aa69",
