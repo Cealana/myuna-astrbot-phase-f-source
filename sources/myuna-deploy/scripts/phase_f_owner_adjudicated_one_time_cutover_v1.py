@@ -29,7 +29,27 @@ import telegram_r5_boot_resume as boot
 
 
 SCHEMA = "myuna.phase-f.owner-adjudicated-one-time-cutover.v1"
-EXPECTED_DEPLOY_PARENT = "1d380ddfa27552ffe02ad695c1950fb08e57294e"
+EXPECTED_DEPLOY_PARENT = "47af0163ae6d6effb323ff2a92f7783b420be310"
+_FIXED_PRODUCT_AUTHORITY_FIELDS = (
+    "builder",
+    "controller",
+    "files",
+    "image",
+    "parent",
+    "releases",
+    "schema",
+    "source",
+)
+_VERIFIED_CONTROLLER_AUTHORITY_FIELDS = frozenset(
+    (*_FIXED_PRODUCT_AUTHORITY_FIELDS, "authority_sha256", "release_sha256")
+)
+_EXPECTED_CONTROLLER_AUTHORITY_FIELDS = frozenset(
+    {
+        "controller_config_sha256",
+        "controller_release_sha256",
+        "controller_static_authority_sha256",
+    }
+)
 RELEASES_ROOT = Path("/opt/myuna/telegram-r5/releases")
 LOCK_PATH = RELEASES_ROOT / ".myuna-phase-f.lock"
 OLD_CONTROLLER_RELEASE = (
@@ -405,16 +425,68 @@ class HostEffects:
         builder = _load_module("_phase_f_cutover_release_builder", release_root / BUILDER_MEMBER)
         self._builder = builder
         authority = builder.verified_controller_authority(RELEASES_ROOT, release_root.name)
-        source = authority.get("source")
+        expected = builder.expected_controller_authority(RELEASES_ROOT, release_root.name)
+        authority_fields = set(authority) if type(authority) is dict else set()
+        fixed_authority = (
+            {key: authority[key] for key in _FIXED_PRODUCT_AUTHORITY_FIELDS}
+            if all(key in authority_fields for key in _FIXED_PRODUCT_AUTHORITY_FIELDS)
+            else None
+        )
+        manifest_authority = external_document.get("fixed_product_authority")
+        source = authority.get("source") if type(authority) is dict else None
+        release_sha256 = (
+            authority.get("release_sha256") if type(authority) is dict else None
+        )
+        authority_sha256 = (
+            authority.get("authority_sha256") if type(authority) is dict else None
+        )
+        expected_release_sha256 = (
+            expected.get("controller_release_sha256")
+            if type(expected) is dict
+            else None
+        )
+        expected_config_sha256 = (
+            expected.get("controller_config_sha256")
+            if type(expected) is dict
+            else None
+        )
+        expected_authority_sha256 = (
+            expected.get("controller_static_authority_sha256")
+            if type(expected) is dict
+            else None
+        )
         _require(
-            type(source) is dict
+            type(authority) is dict
+            and authority_fields == _VERIFIED_CONTROLLER_AUTHORITY_FIELDS
+            and type(manifest_authority) is dict
+            and set(manifest_authority) == set(_FIXED_PRODUCT_AUTHORITY_FIELDS)
+            and all(
+                type(authority[key]) is dict
+                for key in _FIXED_PRODUCT_AUTHORITY_FIELDS
+                if key != "schema"
+            )
+            and type(authority["schema"]) is str
+            and type(expected) is dict
+            and set(expected) == _EXPECTED_CONTROLLER_AUTHORITY_FIELDS
+            and type(expected_config_sha256) is str
+            and _DIGEST.fullmatch(expected_config_sha256) is not None
+            and type(release_sha256) is str
+            and _DIGEST.fullmatch(release_sha256) is not None
+            and release_sha256 == self._selection.release_sha256 == release_root.name
+            and type(expected_release_sha256) is str
+            and expected_release_sha256 == release_sha256
+            and type(authority_sha256) is str
+            and _DIGEST.fullmatch(authority_sha256) is not None
+            and type(expected_authority_sha256) is str
+            and _DIGEST.fullmatch(expected_authority_sha256) is not None
+            and authority_sha256 == expected_authority_sha256
+            and type(source) is dict
             and source.get("deploy_parent") == EXPECTED_DEPLOY_PARENT
             and source.get("deploy_commit") == self._selection.deploy_commit
             and source.get("deploy_tree") == self._selection.deploy_tree
-            and external_document.get("fixed_product_authority") == authority,
+            and fixed_authority == manifest_authority,
             "source_authority_rejected",
         )
-        expected = builder.expected_controller_authority(RELEASES_ROOT, release_root.name)
         _require(builder.verify_release(RELEASES_ROOT, release_root.name, expected), "release_verification_rejected")
         old_document, _old_authority = builder._fixed_historical_authority(
             RELEASES_ROOT / OLD_CONTROLLER_RELEASE

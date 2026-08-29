@@ -181,6 +181,197 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
             with self.assertRaisesRegex(module.CutoverRejected, "public_package_rejected"):
                 module._external_release_document(release, substituted)
 
+    def test_source_authority_accepts_exact_eight_field_projection_in_ten_field_envelope(self) -> None:
+        release_sha256 = "d" * 64
+        static_authority_sha256 = "e" * 64
+        source = {
+            "deploy_commit": "a" * 40,
+            "deploy_parent": module.EXPECTED_DEPLOY_PARENT,
+            "deploy_tree": "b" * 40,
+        }
+        fixed = {
+            "builder": {},
+            "controller": {},
+            "files": {},
+            "image": {},
+            "parent": {},
+            "releases": {},
+            "schema": "synthetic.fixed-product-authority.v1",
+            "source": source,
+        }
+        verified = {
+            **fixed,
+            "authority_sha256": static_authority_sha256,
+            "release_sha256": release_sha256,
+        }
+        expected = {
+            "controller_config_sha256": "c" * 64,
+            "controller_release_sha256": release_sha256,
+            "controller_static_authority_sha256": static_authority_sha256,
+        }
+        builder = mock.Mock()
+        builder.verified_controller_authority.return_value = verified
+        builder.expected_controller_authority.return_value = expected
+        builder.verify_release.return_value = True
+        builder._fixed_historical_authority.side_effect = [({}, {}), ({}, {})]
+        builder._expected.return_value = {}
+        effects = module.HostEffects(
+            module.ReleaseSelection("a" * 40, "b" * 40, "c" * 64, release_sha256)
+        )
+        old_unit = b"synthetic-old-unit\n"
+        with (
+            mock.patch.object(
+                module,
+                "__file__",
+                f"/opt/myuna/telegram-r5/releases/{release_sha256}/"
+                "phase_f_owner_adjudicated_one_time_cutover_v1.py",
+            ),
+            mock.patch.object(
+                module,
+                "_external_release_document",
+                return_value={"fixed_product_authority": fixed},
+            ),
+            mock.patch.object(module, "_load_module", return_value=builder),
+            mock.patch.object(module, "_sealed_members", side_effect=[(), ()]),
+            mock.patch.object(
+                module, "_render_unit", side_effect=[b"synthetic-new-unit\n", old_unit]
+            ),
+            mock.patch.object(module, "OLD_UNIT_SHA256", sha256(old_unit).hexdigest()),
+        ):
+            loaded = effects._load_release()
+        self.assertIs(loaded[1], verified)
+        builder.verify_release.assert_called_once_with(
+            module.RELEASES_ROOT, release_sha256, expected
+        )
+
+    def test_source_authority_rejects_hostile_projection_envelopes_before_release_use(self) -> None:
+        release_sha256 = "d" * 64
+        static_authority_sha256 = "e" * 64
+        source = {
+            "deploy_commit": "a" * 40,
+            "deploy_parent": module.EXPECTED_DEPLOY_PARENT,
+            "deploy_tree": "b" * 40,
+        }
+        fixed = {
+            "builder": {},
+            "controller": {},
+            "files": {},
+            "image": {},
+            "parent": {},
+            "releases": {},
+            "schema": "synthetic.fixed-product-authority.v1",
+            "source": source,
+        }
+        verified = {
+            **fixed,
+            "authority_sha256": static_authority_sha256,
+            "release_sha256": release_sha256,
+        }
+        expected = {
+            "controller_config_sha256": "c" * 64,
+            "controller_release_sha256": release_sha256,
+            "controller_static_authority_sha256": static_authority_sha256,
+        }
+        missing_manifest = dict(fixed)
+        missing_manifest.pop("builder")
+        extra_manifest = {**fixed, "unknown": {}}
+        missing_base = dict(verified)
+        missing_base.pop("controller")
+        missing_release = dict(verified)
+        missing_release.pop("release_sha256")
+        missing_static = dict(verified)
+        missing_static.pop("authority_sha256")
+        sibling_source = {
+            **source,
+            "deploy_parent": "f" * 40,
+        }
+        cases = {
+            "missing_manifest_base": (missing_manifest, verified, expected),
+            "extra_manifest_base": (extra_manifest, verified, expected),
+            "wrong_manifest_type": ([], verified, expected),
+            "missing_verified_base": (fixed, missing_base, expected),
+            "wrong_verified_base_type": (
+                {**fixed, "builder": []},
+                {**verified, "builder": []},
+                expected,
+            ),
+            "wrong_verified_schema_type": (
+                {**fixed, "schema": {}},
+                {**verified, "schema": {}},
+                expected,
+            ),
+            "missing_release_binding": (fixed, missing_release, expected),
+            "missing_static_binding": (fixed, missing_static, expected),
+            "extra_verified_field": (fixed, {**verified, "unknown": None}, expected),
+            "wrong_release_type": (fixed, {**verified, "release_sha256": b"d" * 64}, expected),
+            "wrong_static_type": (fixed, {**verified, "authority_sha256": 7}, expected),
+            "substituted_release": (fixed, {**verified, "release_sha256": "f" * 64}, expected),
+            "substituted_static": (fixed, {**verified, "authority_sha256": "f" * 64}, expected),
+            "copied_release_as_static": (
+                fixed,
+                {**verified, "authority_sha256": release_sha256},
+                expected,
+            ),
+            "substituted_base": (
+                fixed,
+                {**verified, "controller": {"substituted": True}},
+                expected,
+            ),
+            "caller_consistent_sibling_source": (
+                {**fixed, "source": sibling_source},
+                {**verified, "source": sibling_source},
+                expected,
+            ),
+            "wrong_expected_envelope": (
+                fixed,
+                verified,
+                {**expected, "unknown": None},
+            ),
+            "wrong_expected_config_type": (
+                fixed,
+                verified,
+                {**expected, "controller_config_sha256": b"c" * 64},
+            ),
+            "substituted_expected_static": (
+                fixed,
+                verified,
+                {**expected, "controller_static_authority_sha256": "f" * 64},
+            ),
+        }
+        for name, (manifest_authority, selected_authority, selected_expected) in cases.items():
+            with self.subTest(name=name):
+                builder = mock.Mock()
+                builder.verified_controller_authority.return_value = selected_authority
+                builder.expected_controller_authority.return_value = selected_expected
+                builder.verify_release.return_value = True
+                effects = module.HostEffects(
+                    module.ReleaseSelection(
+                        "a" * 40,
+                        "b" * 40,
+                        "c" * 64,
+                        release_sha256,
+                    )
+                )
+                with (
+                    mock.patch.object(
+                        module,
+                        "__file__",
+                        f"/opt/myuna/telegram-r5/releases/{release_sha256}/"
+                        "phase_f_owner_adjudicated_one_time_cutover_v1.py",
+                    ),
+                    mock.patch.object(
+                        module,
+                        "_external_release_document",
+                        return_value={"fixed_product_authority": manifest_authority},
+                    ),
+                    mock.patch.object(module, "_load_module", return_value=builder),
+                ):
+                    with self.assertRaisesRegex(
+                        module.CutoverRejected, "source_authority_rejected"
+                    ):
+                        effects._load_release()
+                builder.verify_release.assert_not_called()
+
     def test_cli_preserves_typed_manual_required_without_raw_exception(self) -> None:
         selection = [
             "--reviewed-deploy-commit", "a" * 40,
@@ -599,7 +790,7 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
     def test_fixed_identity_constants_and_sealed_members_are_unique(self) -> None:
         self.assertEqual(
             module.EXPECTED_DEPLOY_PARENT,
-            "1d380ddfa27552ffe02ad695c1950fb08e57294e",
+            "47af0163ae6d6effb323ff2a92f7783b420be310",
         )
         self.assertEqual(len(module._TARGET_CONTAINER["container_id"]), 64)
         self.assertNotEqual(
