@@ -13,6 +13,7 @@ import argparse
 import base64
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
+import errno
 import fcntl
 from hashlib import sha256
 import importlib.util
@@ -29,7 +30,7 @@ import telegram_r5_boot_resume as boot
 
 
 SCHEMA = "myuna.phase-f.owner-adjudicated-one-time-cutover.v1"
-EXPECTED_DEPLOY_PARENT = "cab0fcbc29c513fe17c9b68a7438ea424a349036"
+EXPECTED_DEPLOY_PARENT = "00b39126ce8b742869cf1c6f2868d705e4bc8315"
 _FIXED_PRODUCT_AUTHORITY_FIELDS = (
     "builder",
     "controller",
@@ -139,6 +140,19 @@ _TARGET_CONTAINER_CAUSES = frozenset(
         "target_start_identity_rejected",
         "target_start_poststate_rejected",
         "target_start_state_rejected",
+        "runtime_signing_cleanup_rejected",
+        "runtime_signing_authority_rejected",
+        "runtime_signing_identity_rejected",
+        "runtime_signing_poststate_rejected",
+        "runtime_signing_prestate_rejected",
+        "runtime_signing_stage_rejected",
+        "runtime_socket_poststate_rejected",
+        "runtime_socket_prestate_rejected",
+        "runtime_socket_start_rejected",
+        "runtime_socket_stop_poststate_rejected",
+        "runtime_socket_stop_rejected",
+        "rollback_container_prestate_rejected",
+        "rollback_signing_prestate_rejected",
     }
 )
 _MANUAL_REQUIRED_UNCLASSIFIED_CAUSE = "manual_effect_unclassified_rejected"
@@ -202,6 +216,86 @@ def _read_regular(path: Path, *, mode: int | None = None, uid: int | None = None
         "member_changed",
     )
     return payload
+
+
+def _bounded_regular_digest(
+    path: Path,
+    *,
+    mode: int,
+    uid: int,
+    gid: int,
+    code: str,
+) -> tuple[str, int]:
+    """Read one small fixed authority file through a stable no-follow handle."""
+
+    named_before = path.lstat()
+    _require(
+        stat.S_ISREG(named_before.st_mode)
+        and not path.is_symlink()
+        and named_before.st_nlink == 1
+        and stat.S_IMODE(named_before.st_mode) == mode
+        and named_before.st_uid == uid
+        and named_before.st_gid == gid,
+        code,
+    )
+    descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+    try:
+        before = os.fstat(descriptor)
+        _require(
+            (named_before.st_dev, named_before.st_ino, named_before.st_mode, named_before.st_nlink)
+            == (before.st_dev, before.st_ino, before.st_mode, before.st_nlink),
+            code,
+        )
+        digest = sha256()
+        size = 0
+        while True:
+            chunk = os.read(descriptor, 4096)
+            if not chunk:
+                break
+            size += len(chunk)
+            _require(size <= 65536, code)
+            digest.update(chunk)
+        after = os.fstat(descriptor)
+    finally:
+        os.close(descriptor)
+    named_after = path.lstat()
+    _require(
+        (
+            before.st_dev,
+            before.st_ino,
+            before.st_mode,
+            before.st_nlink,
+            before.st_size,
+            before.st_ctime_ns,
+            before.st_mtime_ns,
+        )
+        == (
+            after.st_dev,
+            after.st_ino,
+            after.st_mode,
+            after.st_nlink,
+            after.st_size,
+            after.st_ctime_ns,
+            after.st_mtime_ns,
+        )
+        == (
+            named_after.st_dev,
+            named_after.st_ino,
+            named_after.st_mode,
+            named_after.st_nlink,
+            named_after.st_size,
+            named_after.st_ctime_ns,
+            named_after.st_mtime_ns,
+        ),
+        code,
+    )
+    try:
+        acl = os.getxattr(path, "system.posix_acl_access", follow_symlinks=False)
+    except OSError as exc:
+        _require(exc.errno == errno.ENODATA, code)
+    else:
+        _require(not acl, code)
+    return digest.hexdigest(), size
 
 
 def _file_projection(path: Path) -> dict[str, object]:
@@ -610,6 +704,54 @@ class HostEffects:
         return boot.run(["/usr/bin/systemctl", "is-active", unit], check=False)
 
     @staticmethod
+    def _staged_signing_state() -> str:
+        uid_text, gid_text = str(_OLD_CONTAINER["user"]).split(":", 1)
+        authority = _bounded_regular_digest(
+            boot.AUTHORITY_SIGNING,
+            mode=0o600,
+            uid=0,
+            gid=0,
+            code="runtime_signing_authority_rejected",
+        )
+        _require(authority[1] >= 32, "runtime_signing_authority_rejected")
+        try:
+            boot.EPHEMERAL_SIGNING.lstat()
+        except FileNotFoundError:
+            return "absent"
+        try:
+            staged = _bounded_regular_digest(
+                boot.EPHEMERAL_SIGNING,
+                mode=0o400,
+                uid=int(uid_text),
+                gid=int(gid_text),
+                code="runtime_signing_identity_rejected",
+            )
+        except (CutoverRejected, OSError, ValueError):
+            return "third"
+        return "exact" if staged == authority else "third"
+
+    def _clear_staged_signing(self) -> None:
+        try:
+            state = self._staged_signing_state()
+        except Exception:
+            raise CutoverRejected("runtime_signing_cleanup_rejected") from None
+        _require(
+            state in {"absent", "exact"},
+            "runtime_signing_cleanup_rejected",
+        )
+        if state == "absent":
+            return
+        try:
+            boot.EPHEMERAL_SIGNING.unlink()
+        except OSError:
+            raise CutoverRejected("runtime_signing_cleanup_rejected") from None
+        try:
+            absent = self._staged_signing_state() == "absent"
+        except Exception:
+            raise CutoverRejected("runtime_signing_cleanup_rejected") from None
+        _require(absent, "runtime_signing_cleanup_rejected")
+
+    @staticmethod
     def _governed_container_names() -> tuple[str, ...]:
         try:
             output = boot.run(
@@ -716,10 +858,12 @@ class HostEffects:
             if archive_target
             else "rejected"
         )
+        signing_state = self._staged_signing_state()
         if mode in {"preflight", "cutover"}:
             _require(all(current_matches) and unit_sha == OLD_UNIT_SHA256, "cutover_file_prestate_rejected")
             _require(topology == "old_only", "cutover_container_prestate_rejected")
             _require(all(self._service_state(unit) in {"inactive", "failed"} for unit in SERVICES), "cutover_service_prestate_rejected")
+            _require(signing_state == "absent", "cutover_signing_prestate_rejected")
         elif mode == "rollback":
             _require(
                 all(current_match or target_match for current_match, target_match in zip(current_matches, target_matches, strict=True)),
@@ -729,6 +873,10 @@ class HostEffects:
             _require(
                 topology in {"old_only", "archive_only", "archive_target"},
                 "rollback_container_prestate_rejected",
+            )
+            _require(
+                signing_state in {"absent", "exact"},
+                "rollback_signing_prestate_rejected",
             )
             if topology in {"old_only", "archive_only"}:
                 _require(
@@ -805,9 +953,52 @@ class HostEffects:
 
     def start_service(self, unit: str) -> None:
         _require(unit in {CORE_SERVICE, RUNTIME_SOCKET}, "service_start_rejected")
-        _require(self._service_state(unit) in {"inactive", "failed"}, "service_start_prestate_rejected")
-        boot.run(["/usr/bin/systemctl", "start", unit])
-        _require(self._service_state(unit) == "active", "service_start_poststate_rejected")
+        if unit == RUNTIME_SOCKET:
+            try:
+                signing_state = self._staged_signing_state()
+            except Exception:
+                raise CutoverRejected("runtime_signing_prestate_rejected") from None
+            _require(
+                signing_state == "absent",
+                "runtime_signing_prestate_rejected",
+            )
+            uid_text, gid_text = str(_OLD_CONTAINER["user"]).split(":", 1)
+            try:
+                boot.stage_ephemeral_signing(int(uid_text), int(gid_text))
+            except Exception:
+                raise CutoverRejected("runtime_signing_stage_rejected") from None
+            try:
+                signing_exact = self._staged_signing_state() == "exact"
+            except Exception:
+                raise CutoverRejected("runtime_signing_poststate_rejected") from None
+            _require(signing_exact, "runtime_signing_poststate_rejected")
+            try:
+                observed = self._service_state(unit)
+            except Exception:
+                raise CutoverRejected("runtime_socket_prestate_rejected") from None
+            _require(
+                observed in {"inactive", "failed"},
+                "runtime_socket_prestate_rejected",
+            )
+        else:
+            _require(self._service_state(unit) in {"inactive", "failed"}, "service_start_prestate_rejected")
+        try:
+            boot.run(["/usr/bin/systemctl", "start", unit])
+        except Exception:
+            if unit == RUNTIME_SOCKET:
+                raise CutoverRejected("runtime_socket_start_rejected") from None
+            raise
+        if unit == RUNTIME_SOCKET:
+            try:
+                active = self._service_state(unit) == "active"
+            except Exception:
+                raise CutoverRejected("runtime_socket_poststate_rejected") from None
+            _require(
+                active,
+                "runtime_socket_poststate_rejected",
+            )
+        else:
+            _require(self._service_state(unit) == "active", "service_start_poststate_rejected")
 
     def start_target(self, state: Preflight) -> None:
         _require(state.target is not None, "target_container_missing")
@@ -843,12 +1034,30 @@ class HostEffects:
 
     def stop_service(self, unit: str) -> None:
         _require(unit in SERVICES, "service_stop_rejected")
-        observed = self._service_state(unit)
-        if observed in {"inactive", "failed"}:
-            return
-        _require(observed in {"active", "activating", "deactivating"}, "service_stop_ambiguous")
-        boot.run(["/usr/bin/systemctl", "stop", unit])
-        _require(self._service_state(unit) in {"inactive", "failed"}, "service_stop_poststate_rejected")
+        try:
+            observed = self._service_state(unit)
+        except Exception:
+            if unit == RUNTIME_SOCKET:
+                raise CutoverRejected("runtime_socket_stop_rejected") from None
+            raise
+        if observed not in {"inactive", "failed"}:
+            _require(observed in {"active", "activating", "deactivating"}, "service_stop_ambiguous")
+            try:
+                boot.run(["/usr/bin/systemctl", "stop", unit])
+            except Exception:
+                if unit == RUNTIME_SOCKET:
+                    raise CutoverRejected("runtime_socket_stop_rejected") from None
+                raise
+            if unit == RUNTIME_SOCKET:
+                try:
+                    stopped = self._service_state(unit) in {"inactive", "failed"}
+                except Exception:
+                    raise CutoverRejected("runtime_socket_stop_poststate_rejected") from None
+                _require(stopped, "runtime_socket_stop_poststate_rejected")
+            else:
+                _require(self._service_state(unit) in {"inactive", "failed"}, "service_stop_poststate_rejected")
+        if unit == RUNTIME_SOCKET:
+            self._clear_staged_signing()
 
     def stop_target(self, state: Preflight) -> None:
         if state.topology == "old_only":
@@ -903,6 +1112,7 @@ class HostEffects:
     def verify_new_running(self, state: Preflight) -> None:
         _require(sha256(_read_regular(UNIT_PATH, mode=0o644, uid=0)).hexdigest() == sha256(state.new_unit).hexdigest(), "new_unit_convergence_rejected")
         _require(self._service_state(CORE_SERVICE) == "active" and self._service_state(RUNTIME_SOCKET) == "active", "new_service_convergence_rejected")
+        _require(self._staged_signing_state() == "exact", "new_signing_convergence_rejected")
         target = boot.phase_f_container_projection(boot.CONTAINER)
         _require(
             _target_matches_authority(state.target_authority, target)
@@ -916,6 +1126,7 @@ class HostEffects:
     def verify_old_stopped(self, state: Preflight) -> None:
         _require(sha256(_read_regular(UNIT_PATH, mode=0o644, uid=0)).hexdigest() == OLD_UNIT_SHA256, "old_unit_convergence_rejected")
         _require(all(self._service_state(unit) in {"inactive", "failed"} for unit in SERVICES), "old_service_convergence_rejected")
+        _require(self._staged_signing_state() == "absent", "old_signing_convergence_rejected")
         old = boot.phase_f_container_projection(boot.CONTAINER)
         archive = boot.phase_f_container_projection(
             state.target_authority.archive_name
@@ -934,7 +1145,19 @@ class HostEffects:
 def execute(mode: str, effects: Effects) -> dict[str, object]:
     """Run one finite mode.  No result is a semantic product-success claim."""
 
-    state = effects.preflight(mode)
+    try:
+        state = effects.preflight(mode)
+    except CutoverRejected as exc:
+        if mode == "rollback" and exc.code in {
+            "rollback_container_prestate_rejected",
+            "rollback_signing_prestate_rejected",
+        }:
+            raise ManualRequired(
+                "rollback_manual_required",
+                "preflight",
+                exc.code,
+            ) from exc
+        raise
     if mode == "preflight":
         return {"mode": mode, "schema": SCHEMA, "status": "PREFLIGHT_ACCEPTED_ZERO_EFFECT"}
     if mode == "cutover":
@@ -942,8 +1165,6 @@ def execute(mode: str, effects: Effects) -> dict[str, object]:
         try:
             boundary = "archive_old"
             state = effects.archive_old(state)
-            boundary = "create_target"
-            state = effects.create_target(state)
             for member in state.target_members:
                 boundary = f"materialize:{member.role}"
                 effects.write_member(member)
@@ -955,6 +1176,8 @@ def execute(mode: str, effects: Effects) -> dict[str, object]:
             effects.start_service(CORE_SERVICE)
             boundary = "runtime_socket"
             effects.start_service(RUNTIME_SOCKET)
+            boundary = "create_target"
+            state = effects.create_target(state)
             boundary = "target_container"
             effects.start_target(state)
             boundary = "new_convergence"
@@ -981,11 +1204,11 @@ def execute(mode: str, effects: Effects) -> dict[str, object]:
     if mode == "rollback":
         boundary = "preflight"
         try:
+            boundary = "stop:target_container"
+            effects.stop_target(state)
             for unit in (R5_SERVICE, RUNTIME_SERVICE, RUNTIME_SOCKET, CORE_SERVICE):
                 boundary = f"stop:{unit}"
                 effects.stop_service(unit)
-            boundary = "stop:target_container"
-            effects.stop_target(state)
             for member in state.current:
                 boundary = f"restore:{member.role}"
                 effects.write_member(member)

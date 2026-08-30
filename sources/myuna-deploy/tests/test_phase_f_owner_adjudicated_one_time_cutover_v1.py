@@ -413,6 +413,13 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
                 "lost_return:synthetic-raw-value",
                 "manual_effect_unclassified_rejected",
             ),
+            (
+                "cutover",
+                "cutover_manual_required",
+                "runtime_socket",
+                "runtime_signing_stage_rejected",
+                "runtime_signing_stage_rejected",
+            ),
         ):
             with self.subTest(mode=mode):
                 output = io.StringIO()
@@ -614,6 +621,7 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
             mock.patch.object(module.boot, "phase_f_container_projection", side_effect=lambda name: projections[name]),
             mock.patch.object(module.boot, "phase_f_network_projection", return_value=synthetic.network),
             mock.patch.object(effects, "_service_state", return_value="inactive"),
+            mock.patch.object(effects, "_staged_signing_state", return_value="absent"),
             mock.patch.object(
                 effects,
                 "_governed_container_names",
@@ -647,6 +655,7 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
             mock.patch.object(module, "_read_regular", return_value=synthetic.old_unit),
             mock.patch.object(module, "OLD_UNIT_SHA256", old_sha),
             mock.patch.object(effects, "_service_state", return_value="inactive"),
+            mock.patch.object(effects, "_staged_signing_state", return_value="absent"),
             mock.patch.object(
                 module.boot,
                 "phase_f_container_projection",
@@ -802,7 +811,183 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
                 module.execute("cutover", fake)
             self.assertEqual(fake.calls.count(boundary), 1)
             self.assertEqual(raised.exception.boundary, boundary)
-            self.assertNotIn("write_member:target:role-0", fake.calls)
+            if boundary == "archive_old":
+                self.assertNotIn("write_member:target:role-0", fake.calls)
+            else:
+                self.assertIn("write_member:target:role-6", fake.calls)
+
+    def test_runtime_signing_socket_prestate_is_finite_typed_and_single_dispatch(self) -> None:
+        selection = module.ReleaseSelection("a" * 40, "b" * 40, "c" * 64, "d" * 64)
+        effects = module.HostEffects(selection)
+        order: list[str] = []
+
+        def stage(uid: int, gid: int) -> None:
+            order.append(f"stage:{uid}:{gid}")
+
+        def run(command: list[str], **_kwargs: object) -> str:
+            order.append(":".join(command[-2:]))
+            return ""
+
+        with (
+            mock.patch.object(
+                effects,
+                "_staged_signing_state",
+                side_effect=("absent", "exact"),
+            ),
+            mock.patch.object(
+                effects,
+                "_service_state",
+                side_effect=("inactive", "active"),
+            ),
+            mock.patch.object(module.boot, "stage_ephemeral_signing", side_effect=stage) as stage_call,
+            mock.patch.object(module.boot, "run", side_effect=run) as run_call,
+        ):
+            effects.start_service(module.RUNTIME_SOCKET)
+        self.assertEqual(
+            order,
+            [
+                "stage:988:982",
+                f"start:{module.RUNTIME_SOCKET}",
+            ],
+        )
+        self.assertEqual(stage_call.call_count, 1)
+        self.assertEqual(run_call.call_count, 1)
+
+        cases = (
+            (
+                "runtime_signing_stage_rejected",
+                ("absent",),
+                OSError("synthetic-stage-lost-return"),
+                None,
+                ("inactive",),
+                0,
+            ),
+            (
+                "runtime_signing_poststate_rejected",
+                ("absent", "third"),
+                None,
+                None,
+                (),
+                0,
+            ),
+            (
+                "runtime_socket_start_rejected",
+                ("absent", "exact"),
+                None,
+                OSError("synthetic-socket-lost-return"),
+                ("inactive",),
+                1,
+            ),
+            (
+                "runtime_socket_poststate_rejected",
+                ("absent", "exact"),
+                None,
+                None,
+                ("inactive", "inactive"),
+                1,
+            ),
+        )
+        for expected, signing, stage_error, run_error, service, expected_run in cases:
+            with self.subTest(expected=expected):
+                stage_effect = mock.Mock(side_effect=stage_error)
+                run_effect = mock.Mock(side_effect=run_error)
+                with (
+                    mock.patch.object(
+                        effects,
+                        "_staged_signing_state",
+                        side_effect=signing,
+                    ),
+                    mock.patch.object(
+                        effects,
+                        "_service_state",
+                        side_effect=service,
+                    ),
+                    mock.patch.object(
+                        module.boot,
+                        "stage_ephemeral_signing",
+                        stage_effect,
+                    ),
+                    mock.patch.object(module.boot, "run", run_effect),
+                ):
+                    with self.assertRaises(module.CutoverRejected) as caught:
+                        effects.start_service(module.RUNTIME_SOCKET)
+                self.assertEqual(caught.exception.code, expected)
+                self.assertEqual(stage_effect.call_count, 1)
+                self.assertEqual(run_effect.call_count, expected_run)
+                self.assertNotIn("synthetic", str(caught.exception))
+
+    def test_runtime_signing_cleanup_is_exact_only_and_no_redispatch(self) -> None:
+        effects = module.HostEffects(
+            module.ReleaseSelection("a" * 40, "b" * 40, "c" * 64, "d" * 64)
+        )
+        with (
+            mock.patch.object(effects, "_service_state", return_value="inactive"),
+            mock.patch.object(
+                effects,
+                "_staged_signing_state",
+                side_effect=("exact", "absent"),
+            ),
+            mock.patch.object(Path, "unlink") as unlink,
+        ):
+            effects.stop_service(module.RUNTIME_SOCKET)
+        unlink.assert_called_once_with()
+
+        with (
+            mock.patch.object(effects, "_service_state", return_value="inactive"),
+            mock.patch.object(effects, "_staged_signing_state", return_value="third"),
+            mock.patch.object(Path, "unlink") as unlink,
+        ):
+            with self.assertRaisesRegex(
+                module.CutoverRejected,
+                "runtime_signing_cleanup_rejected",
+            ):
+                effects.stop_service(module.RUNTIME_SOCKET)
+        unlink.assert_not_called()
+
+    def test_bounded_signing_digest_is_nofollow_metadata_and_acl_bound(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "synthetic-signing"
+            payload = b"synthetic-signing-authority-value\n"
+            path.write_bytes(payload)
+            path.chmod(0o600)
+            metadata = path.stat()
+            self.assertEqual(
+                module._bounded_regular_digest(
+                    path,
+                    mode=0o600,
+                    uid=metadata.st_uid,
+                    gid=metadata.st_gid,
+                    code="synthetic_rejected",
+                ),
+                (sha256(payload).hexdigest(), len(payload)),
+            )
+            path.chmod(0o644)
+            with self.assertRaisesRegex(module.CutoverRejected, "synthetic_rejected"):
+                module._bounded_regular_digest(
+                    path,
+                    mode=0o600,
+                    uid=metadata.st_uid,
+                    gid=metadata.st_gid,
+                    code="synthetic_rejected",
+                )
+
+    def test_rollback_hazard_preflight_is_typed_manual_required(self) -> None:
+        for code in (
+            "rollback_container_prestate_rejected",
+            "rollback_signing_prestate_rejected",
+        ):
+            with self.subTest(code=code):
+                effects = FakeEffects()
+                with mock.patch.object(
+                    effects,
+                    "preflight",
+                    side_effect=module.CutoverRejected(code),
+                ):
+                    with self.assertRaises(module.ManualRequired) as caught:
+                        module.execute("rollback", effects)
+                self.assertEqual(caught.exception.kind, "rollback_manual_required")
+                self.assertEqual(caught.exception.boundary, "preflight")
+                self.assertEqual(caught.exception.effect_code, code)
 
     def test_container_census_excludes_inactive_historical_names_only(self) -> None:
         source_archive = module.boot.ARCHIVE_PREFIX + "a" * 16
@@ -851,6 +1036,7 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
             network: module.boot.PhaseFNetworkProjection = synthetic.network,
             governed: tuple[str, ...] = (module.boot.CONTAINER,),
             target_matches: bool = False,
+            signing_state: str = "absent",
         ) -> module.Preflight:
             with ExitStack() as stack:
                 stack.enter_context(
@@ -881,6 +1067,13 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
                 stack.enter_context(
                     mock.patch.object(
                         effects,
+                        "_staged_signing_state",
+                        return_value=signing_state,
+                    )
+                )
+                stack.enter_context(
+                    mock.patch.object(
+                        effects,
                         "_governed_container_names",
                         return_value=governed,
                     )
@@ -895,24 +1088,50 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
                 stack.enter_context(mock.patch.object(module, "_file_projection", side_effect=lambda path: observed[path]))
                 return effects.preflight(mode)
 
-        for mask in range(128):
-            observed = {
-                current.path: projection(
-                    target if mask & (1 << index) else current
-                )
-                for index, (current, target) in enumerate(
-                    zip(synthetic.current, synthetic.target_members, strict=True)
-                )
-            }
-            with self.subTest(mask=mask):
-                self.assertEqual(len(preflight(observed, "rollback").current), 7)
-                if mask == 0:
-                    self.assertEqual(len(preflight(observed, "cutover").target_members), 7)
-                else:
-                    with self.assertRaisesRegex(
-                        module.CutoverRejected, "cutover_file_prestate_rejected"
-                    ):
-                        preflight(observed, "cutover")
+        all_current = {
+            member.path: projection(member) for member in synthetic.current
+        }
+        for signing_state in ("absent", "exact"):
+            for mask in range(128):
+                observed = {
+                    current.path: projection(
+                        target if mask & (1 << index) else current
+                    )
+                    for index, (current, target) in enumerate(
+                        zip(synthetic.current, synthetic.target_members, strict=True)
+                    )
+                }
+                with self.subTest(mask=mask, signing_state=signing_state):
+                    self.assertEqual(
+                        len(
+                            preflight(
+                                observed,
+                                "rollback",
+                                signing_state=signing_state,
+                            ).current
+                        ),
+                        7,
+                    )
+                    if mask == 0 and signing_state == "absent":
+                        self.assertEqual(
+                            len(preflight(observed, "cutover").target_members),
+                            7,
+                        )
+                    elif mask != 0:
+                        with self.assertRaisesRegex(
+                            module.CutoverRejected, "cutover_file_prestate_rejected"
+                        ):
+                            preflight(observed, "cutover")
+            if signing_state == "exact":
+                with self.assertRaisesRegex(
+                    module.CutoverRejected, "cutover_signing_prestate_rejected"
+                ):
+                    preflight(all_current, "cutover", signing_state=signing_state)
+
+        with self.assertRaisesRegex(
+            module.CutoverRejected, "rollback_signing_prestate_rejected"
+        ):
+            preflight(all_current, "rollback", signing_state="third")
 
         third = {member.path: projection(member) for member in synthetic.current}
         third[synthetic.current[3].path] = {**third[synthetic.current[3].path], "sha256": "f" * 64}
@@ -921,9 +1140,6 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
         ):
             preflight(third, "rollback")
 
-        all_current = {
-            member.path: projection(member) for member in synthetic.current
-        }
         with self.assertRaisesRegex(
             module.CutoverRejected, "rollback_container_prestate_rejected"
         ):
@@ -1059,12 +1275,12 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
     def test_cutover_fault_matrix_stops_before_later_forward_effects(self) -> None:
         forward = (
             "archive_old",
-            "create_target",
             *[f"write_member:target:role-{index}" for index in range(7)],
             "write_new_unit",
             "daemon_reload",
             f"start_service:{module.CORE_SERVICE}",
             f"start_service:{module.RUNTIME_SOCKET}",
+            "create_target",
             "start_target",
             "verify_new_running",
         )
@@ -1148,12 +1364,16 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
         self.assertEqual(observations[0], observations[1])
         calls = observations[0][1]
         self.assertEqual(
-            calls[3:10],
+            calls[2:9],
             [f"write_member:target:role-{index}" for index in range(7)],
         )
-        self.assertEqual(calls[1:3], ["archive_old", "create_target"])
+        self.assertEqual(calls[1], "archive_old")
         self.assertLess(calls.index("write_member:target:role-6"), calls.index("write_new_unit"))
         self.assertLess(calls.index("write_new_unit"), calls.index("daemon_reload"))
+        self.assertLess(
+            calls.index(f"start_service:{module.RUNTIME_SOCKET}"),
+            calls.index("create_target"),
+        )
         self.assertEqual(calls.count("daemon_reload"), 1)
 
     def test_exact_old_and_new_convergence_are_terminal_oracles_only(self) -> None:
@@ -1202,7 +1422,7 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
     def test_fixed_identity_constants_and_sealed_members_are_unique(self) -> None:
         self.assertEqual(
             module.EXPECTED_DEPLOY_PARENT,
-            "cab0fcbc29c513fe17c9b68a7438ea424a349036",
+            "00b39126ce8b742869cf1c6f2868d705e4bc8315",
         )
         self.assertEqual(len(module._OLD_CONTAINER["container_id"]), 64)
         self.assertEqual(
