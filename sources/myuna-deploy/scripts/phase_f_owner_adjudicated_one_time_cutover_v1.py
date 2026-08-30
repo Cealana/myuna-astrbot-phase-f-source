@@ -30,7 +30,7 @@ import telegram_r5_boot_resume as boot
 
 
 SCHEMA = "myuna.phase-f.owner-adjudicated-one-time-cutover.v1"
-EXPECTED_DEPLOY_PARENT = "d891a6ed0d213c60f284cb9258057c4dc5f08978"
+EXPECTED_DEPLOY_PARENT = "ce46d85cc05add9a536a9e5313f387cc9a6edc64"
 _FIXED_PRODUCT_AUTHORITY_FIELDS = (
     "builder",
     "controller",
@@ -671,13 +671,28 @@ class HostEffects:
         return boot.run(["/usr/bin/systemctl", "is-active", unit], check=False)
 
     @staticmethod
-    def _attempt8_historical_target_unit_sha256() -> str:
-        """Verify the one retained Attempt-8 release and render its sealed unit."""
+    def _attempt8_historical_rollback_authority(
+    ) -> tuple[str, boot.PhaseFTargetContainer]:
+        """Verify and reopen the one sealed Attempt-8 rollback authority."""
 
         release_root = RELEASES_ROOT / ATTEMPT8_HISTORICAL_TARGET_RELEASE
+        module_names = (
+            "p07_owner_private_memory_production_plan",
+            "telegram_r5_boot_resume",
+        )
+        current_modules = {name: sys.modules.get(name) for name in module_names}
+        historical_builder_name = "_phase_f_attempt8_historical_release_builder"
         try:
+            _load_module(
+                module_names[0],
+                release_root / "p07_owner_private_memory_production_plan.py",
+            )
+            historical_boot = _load_module(
+                module_names[1],
+                release_root / "telegram_r5_boot_resume.py",
+            )
             historical_builder = _load_module(
-                "_phase_f_attempt8_historical_release_builder",
+                historical_builder_name,
                 release_root / BUILDER_MEMBER,
             )
             verified = historical_builder.verified_controller_authority(
@@ -700,8 +715,20 @@ class HostEffects:
                 ),
                 "rollback_unit_prestate_rejected",
             )
+            target_authority = historical_builder.verified_target_container_authority(
+                verified,
+                historical_boot.PhaseFContainerProjection(**_OLD_CONTAINER),
+                historical_boot.PhaseFNetworkProjection(**_NETWORK),
+            )
         except Exception:
             raise CutoverRejected("rollback_unit_prestate_rejected") from None
+        finally:
+            sys.modules.pop(historical_builder_name, None)
+            for name, current in current_modules.items():
+                if current is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = current
         source = verified.get("source") if type(verified) is dict else None
         selection = ReleaseSelection(
             deploy_commit=str(selected.get("deploy_commit")),
@@ -740,7 +767,7 @@ class HostEffects:
             unit_sha256 == ATTEMPT8_HISTORICAL_TARGET_UNIT_SHA256,
             "rollback_unit_prestate_rejected",
         )
-        return unit_sha256
+        return unit_sha256, target_authority
 
     @staticmethod
     def _staged_signing_state() -> str:
@@ -852,14 +879,24 @@ class HostEffects:
         unit_sha = sha256(_read_regular(UNIT_PATH, mode=0o644, uid=0)).hexdigest()
         expected_old = boot.PhaseFContainerProjection(**_OLD_CONTAINER)
         expected_network = boot.PhaseFNetworkProjection(**_NETWORK)
-        try:
-            target_authority = self._builder.verified_target_container_authority(
-                authority,
-                expected_old,
-                expected_network,
+        historical_unit = (
+            mode == "rollback"
+            and unit_sha == ATTEMPT8_HISTORICAL_TARGET_UNIT_SHA256
+        )
+        historical_unit_sha256 = None
+        if historical_unit:
+            historical_unit_sha256, target_authority = (
+                self._attempt8_historical_rollback_authority()
             )
-        except Exception:
-            raise CutoverRejected("target_container_authority_rejected") from None
+        else:
+            try:
+                target_authority = self._builder.verified_target_container_authority(
+                    authority,
+                    expected_old,
+                    expected_network,
+                )
+            except Exception:
+                raise CutoverRejected("target_container_authority_rejected") from None
         archive_name = target_authority.archive_name
         expected_archive = replace(expected_old, name=archive_name)
         target = boot.phase_f_container_projection(boot.CONTAINER)
@@ -920,11 +957,10 @@ class HostEffects:
                 signing_state in {"absent", "exact"},
                 "rollback_signing_prestate_rejected",
             )
-            historical_unit = unit_sha == ATTEMPT8_HISTORICAL_TARGET_UNIT_SHA256
             if historical_unit:
                 _require(
                     topology == "archive_target"
-                    and unit_sha == self._attempt8_historical_target_unit_sha256()
+                    and unit_sha == historical_unit_sha256
                     and all(
                         self._service_state(unit) in {"inactive", "failed"}
                         for unit in SERVICES

@@ -31,9 +31,9 @@
       "tree": "e43ae07babf5a448525d1035d400a37fde374a2b"
     },
     "deploy": {
-      "commit": "ce46d85cc05add9a536a9e5313f387cc9a6edc64",
+      "commit": "24d9b42c2d139de45ccd724ac61143f2858a287e",
       "scope": "complete",
-      "tree": "77da39f7f6e303f9389894655986ca5470e4d911"
+      "tree": "8a16bce625d6fd635ee4993ce3a98b4d8ab77804"
     }
   }
 }
