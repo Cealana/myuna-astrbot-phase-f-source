@@ -937,6 +937,90 @@ def _validate_phase_f_target_effect(target: PhaseFTargetContainer) -> None:
         raise ResumeRejected("phase_f_target_effect_rejected")
 
 
+def _phase_f_effect_host_digest_with_restart(
+    effect: dict[str, object],
+    restart_policy: str,
+    restart_maximum_retry_count: int,
+) -> str:
+    host = effect["host"]
+    assert isinstance(host, dict)
+    transitioned = {
+        **host,
+        "restart": {
+            "maximum_retry_count": restart_maximum_retry_count,
+            "name": restart_policy,
+        },
+    }
+    return _phase_f_digest("phase_f_attempt5_target_host_v1", transitioned)
+
+
+def phase_f_target_matches_authority(
+    authority: PhaseFTargetContainer,
+    observed: PhaseFContainerProjection | None,
+    *,
+    network: PhaseFNetworkProjection | None,
+    expected_container_id: str | None = None,
+) -> bool:
+    """Admit one dynamic TARGET through the complete sealed source projection."""
+
+    if observed is None or network is None:
+        return False
+    try:
+        _validate_phase_f_target_effect(authority)
+    except ResumeRejected:
+        return False
+    effect = authority.effect
+    assert isinstance(effect, dict)
+    if expected_container_id is not None and (
+        not expected_container_id or observed.container_id != expected_container_id
+    ):
+        return False
+    expected = {
+        "command_digest": effect["command_sha256"],
+        "effect_digest": effect["effect_sha256"],
+        "effect_environment_digest": effect["environment_sha256"],
+        "effect_mounts_digest": effect["mounts_sha256"],
+        "image": authority.image,
+        "name": CONTAINER,
+        "network_names": (NETWORK,),
+        "plan_digest": authority.plan_digest,
+        "project": COMPOSE_PROJECT,
+        "service": COMPOSE_SERVICE,
+        "target_config_digest": authority.target_config_digest,
+        "user": authority.user,
+    }
+    if any(getattr(observed, key) != value for key, value in expected.items()):
+        return False
+    if (
+        phase_f_network_identity_sha256(network)
+        != effect["network_projection_sha256"]
+        or network.member_container_ids not in {(), (observed.container_id,)}
+    ):
+        return False
+    pre_policy_digest = str(effect["host_sha256"])
+    post_policy_digest = _phase_f_effect_host_digest_with_restart(
+        effect,
+        EXPECTED_RESTART_POLICY,
+        EXPECTED_RESTART_MAXIMUM_RETRY_COUNT,
+    )
+    return (
+        observed.status in {"created", "exited", "running"}
+        and (
+            observed.restart_policy,
+            observed.restart_maximum_retry_count,
+            observed.effect_host_digest,
+        )
+        in {
+            ("no", 0, pre_policy_digest),
+            (
+                EXPECTED_RESTART_POLICY,
+                EXPECTED_RESTART_MAXIMUM_RETRY_COUNT,
+                post_policy_digest,
+            ),
+        }
+    )
+
+
 def _phase_f_base_create_arguments(target: PhaseFTargetContainer) -> list[str]:
     data_root = target.channel_root / "astrbot-data"
     return [
@@ -1256,15 +1340,17 @@ def phase_f_start_container_exact(
     fixed_runner(["/usr/bin/docker", "container", "start", observed.container_id])
     for index in range(13):
         after = phase_f_container_projection(CONTAINER, runner=fixed_runner)
+        if after is None:
+            raise ResumeRejected("phase_f_start_poststate_missing")
         if not _phase_f_same_object(
             expected, after, name=CONTAINER,
             allow_status_change=True, allow_network_runtime_change=True,
-        ) or after is None:
-            raise ResumeRejected("phase_f_start_poststate_rejected")
+        ):
+            raise ResumeRejected("phase_f_start_poststate_identity_rejected")
         if after.status == "running" and after.health == "healthy":
             return after
         if after.status != "running" or after.health not in {"", "starting"}:
-            raise ResumeRejected("phase_f_start_poststate_rejected")
+            raise ResumeRejected("phase_f_start_poststate_state_rejected")
         if index < 12:
             sleeper(5.0)
     raise ResumeRejected("phase_f_start_health_timeout")

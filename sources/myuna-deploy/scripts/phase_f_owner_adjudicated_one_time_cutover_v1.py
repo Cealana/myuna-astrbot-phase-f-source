@@ -30,7 +30,7 @@ import telegram_r5_boot_resume as boot
 
 
 SCHEMA = "myuna.phase-f.owner-adjudicated-one-time-cutover.v1"
-EXPECTED_DEPLOY_PARENT = "00b39126ce8b742869cf1c6f2868d705e4bc8315"
+EXPECTED_DEPLOY_PARENT = "0afdc5a07fedc7144d8b6c483e32aaf1e9597d2b"
 _FIXED_PRODUCT_AUTHORITY_FIELDS = (
     "builder",
     "controller",
@@ -138,7 +138,9 @@ _TARGET_CONTAINER_CAUSES = frozenset(
         "target_start_command_rejected",
         "target_start_health_timeout",
         "target_start_identity_rejected",
-        "target_start_poststate_rejected",
+        "target_start_poststate_identity_rejected",
+        "target_start_poststate_missing",
+        "target_start_poststate_state_rejected",
         "target_start_state_rejected",
         "runtime_signing_cleanup_rejected",
         "runtime_signing_authority_rejected",
@@ -516,47 +518,6 @@ def _sealed_members(authority: Mapping[str, object]) -> tuple[SealedMember, ...]
     return tuple(result)
 
 
-def _target_matches_authority(
-    authority: boot.PhaseFTargetContainer,
-    observed: boot.PhaseFContainerProjection | None,
-) -> bool:
-    """Admit a dynamic-ID TARGET only through its complete source projection."""
-
-    effect = authority.effect
-    if observed is None or type(effect) is not dict:
-        return False
-    expected = {
-        "command_digest": effect.get("command_sha256"),
-        "effect_digest": effect.get("effect_sha256"),
-        "effect_environment_digest": effect.get("environment_sha256"),
-        "effect_host_digest": effect.get("host_sha256"),
-        "effect_mounts_digest": effect.get("mounts_sha256"),
-        "image": authority.image,
-        "name": boot.CONTAINER,
-        "network_names": (boot.NETWORK,),
-        "plan_digest": authority.plan_digest,
-        "project": boot.COMPOSE_PROJECT,
-        "service": boot.COMPOSE_SERVICE,
-        "target_config_digest": authority.target_config_digest,
-        "user": authority.user,
-    }
-    return (
-        all(getattr(observed, key) == value for key, value in expected.items())
-        and observed.status in {"created", "exited", "running"}
-        and (
-            observed.restart_policy,
-            observed.restart_maximum_retry_count,
-        )
-        in {
-            ("no", 0),
-            (
-                boot.EXPECTED_RESTART_POLICY,
-                boot.EXPECTED_RESTART_MAXIMUM_RETRY_COUNT,
-            ),
-        }
-    )
-
-
 def _container_effect_cause(operation: str, exc: BaseException) -> str:
     lower = str(exc) if isinstance(exc, boot.ResumeRejected) else ""
     mappings = {
@@ -843,7 +804,11 @@ class HostEffects:
         )
         archive_target = (
             archive == expected_archive
-            and _target_matches_authority(target_authority, target)
+            and boot.phase_f_target_matches_authority(
+                target_authority,
+                target,
+                network=network,
+            )
             and same_network
             and target is not None
             and network.member_container_ids in {(), (target.container_id,)}
@@ -938,8 +903,14 @@ class HostEffects:
             )
         except Exception as exc:
             raise CutoverRejected(_container_effect_cause("create", exc)) from None
+        observed_network = boot.phase_f_network_projection()
         _require(
-            _target_matches_authority(state.target_authority, target),
+            boot.phase_f_target_matches_authority(
+                state.target_authority,
+                target,
+                network=observed_network,
+                expected_container_id=target.container_id,
+            ),
             "target_create_poststate_rejected",
         )
         return replace(state, target=target, topology="archive_target")
@@ -1023,7 +994,9 @@ class HostEffects:
             cause = {
                 "phase_f_start_health_timeout": "target_start_health_timeout",
                 "phase_f_start_identity_rejected": "target_start_identity_rejected",
-                "phase_f_start_poststate_rejected": "target_start_poststate_rejected",
+                "phase_f_start_poststate_identity_rejected": "target_start_poststate_identity_rejected",
+                "phase_f_start_poststate_missing": "target_start_poststate_missing",
+                "phase_f_start_poststate_state_rejected": "target_start_poststate_state_rejected",
                 "phase_f_start_state_ambiguous": "target_start_state_rejected",
             }.get(lower)
             if cause is None and re.fullmatch(r"fixed_command_failed:docker:-?\d+", lower):
@@ -1065,8 +1038,15 @@ class HostEffects:
         observed = boot.phase_f_container_projection(boot.CONTAINER)
         if observed is None:
             return
+        network = boot.phase_f_network_projection()
         _require(
-            _target_matches_authority(state.target_authority, observed),
+            state.target is not None
+            and boot.phase_f_target_matches_authority(
+                state.target_authority,
+                observed,
+                network=network,
+                expected_container_id=state.target.container_id,
+            ),
             "rollback_target_identity_rejected",
         )
         boot.phase_f_stop_container_exact(observed, name=boot.CONTAINER)
@@ -1098,8 +1078,15 @@ class HostEffects:
             "rollback_archive_identity_rejected",
         )
         if observed is not None:
+            network = boot.phase_f_network_projection()
             _require(
-                _target_matches_authority(state.target_authority, observed),
+                state.target is not None
+                and boot.phase_f_target_matches_authority(
+                    state.target_authority,
+                    observed,
+                    network=network,
+                    expected_container_id=state.target.container_id,
+                ),
                 "rollback_target_identity_rejected",
             )
             boot.phase_f_remove_container_exact(observed, expected_network=state.network)
@@ -1114,10 +1101,16 @@ class HostEffects:
         _require(self._service_state(CORE_SERVICE) == "active" and self._service_state(RUNTIME_SOCKET) == "active", "new_service_convergence_rejected")
         _require(self._staged_signing_state() == "exact", "new_signing_convergence_rejected")
         target = boot.phase_f_container_projection(boot.CONTAINER)
+        network = boot.phase_f_network_projection()
         _require(
-            _target_matches_authority(state.target_authority, target)
+            state.target is not None
+            and boot.phase_f_target_matches_authority(
+                state.target_authority,
+                target,
+                network=network,
+                expected_container_id=state.target.container_id,
+            )
             and target is not None
-            and target.container_id == state.target.container_id
             and target.status == "running"
             and target.health == "healthy",
             "new_container_convergence_rejected",

@@ -487,8 +487,20 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
             ),
             (
                 "start",
-                module.boot.ResumeRejected("phase_f_start_poststate_rejected"),
-                "target_start_poststate_rejected",
+                module.boot.ResumeRejected("phase_f_start_poststate_missing"),
+                "target_start_poststate_missing",
+            ),
+            (
+                "start",
+                module.boot.ResumeRejected(
+                    "phase_f_start_poststate_identity_rejected"
+                ),
+                "target_start_poststate_identity_rejected",
+            ),
+            (
+                "start",
+                module.boot.ResumeRejected("phase_f_start_poststate_state_rejected"),
+                "target_start_poststate_state_rejected",
             ),
             (
                 "start",
@@ -692,46 +704,178 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
         self.assertEqual(raised.exception.boundary, "restore:old_container")
         self.assertEqual(raised.exception.effect_code, "lost_return")
 
-    def test_dynamic_target_identity_is_bound_by_source_projection_not_old_id(self) -> None:
-        synthetic = synthetic_state()
-        authority = mock.Mock(
-            image="myuna/astrbot-phase-f-deterministic@sha256:" + "1" * 64,
-            plan_digest="2" * 64,
-            target_config_digest="3" * 64,
+    def test_complete_target_identity_has_one_boot_owned_predicate(self) -> None:
+        source = MODULE_PATH.read_text("utf-8")
+        self.assertNotIn("def _target_matches_authority", source)
+        self.assertEqual(source.count("boot.phase_f_target_matches_authority("), 5)
+
+    def test_attempt8_post_policy_target_uses_exact_reviewed_recovery_identity(self) -> None:
+        old = module.boot.PhaseFContainerProjection(**module._OLD_CONTAINER)
+        network = module.boot.PhaseFNetworkProjection(**module._NETWORK)
+        authority = module.boot.PhaseFTargetContainer(
+            plan_digest=module.boot.ATTEMPT5_ENTRY_PLAN_SHA256,
+            target_config_digest="9" * 64,
+            image=module.boot.EXPECTED_IMAGE_PREFIX + "f" * 64,
             user="988:982",
-            effect={
-                "command_sha256": "4" * 64,
-                "effect_sha256": "5" * 64,
-                "environment_sha256": "6" * 64,
-                "host_sha256": "7" * 64,
-                "mounts_sha256": "8" * 64,
+            channel_root=Path("/srv/myuna/channels/astrbot-telegram/dev"),
+            plugin_root=Path("/opt/myuna/release/plugin"),
+            signing_secret=Path("/run/secrets/signing"),
+            runtime_root=Path("/run/myuna-telegram-gateway"),
+            media_auth_runtime_root=Path("/run/myuna-telegram-media-auth"),
+            archive_name=module.boot.ARCHIVE_PREFIX + "a" * 16,
+        )
+        archive = module.replace(old, name=authority.archive_name)
+        body: dict[str, object] = {
+            "archive_container_id": archive.container_id,
+            "archive_name": authority.archive_name,
+            "archive_projection_sha256": (
+                module.boot.phase_f_container_identity_sha256(archive)
+            ),
+            "attempt": 5,
+            "command": {"command": ["python", "main.py"], "entrypoint": None},
+            "container_name": module.boot.CONTAINER,
+            "environment": module.boot._phase_f_effect_environment(),
+            "host": module.boot._phase_f_effect_host(authority.user),
+            "image": authority.image,
+            "mounts": module.boot._phase_f_effect_mounts(authority),
+            "network_name": module.boot.NETWORK,
+            "network_projection_sha256": (
+                module.boot.phase_f_network_identity_sha256(network)
+            ),
+            "plan_digest": module.boot.ATTEMPT5_ENTRY_PLAN_SHA256,
+            "project": module.boot.COMPOSE_PROJECT,
+            "service": module.boot.COMPOSE_SERVICE,
+            "target_config_digest": authority.target_config_digest,
+            "user": authority.user,
+            "writer": False,
+        }
+        body["command_sha256"] = module.boot._phase_f_digest(
+            "myuna.phase-f.container-command.v1", body["command"]
+        )
+        body["environment_sha256"] = module.boot._phase_f_digest(
+            "phase_f_attempt5_target_environment_v1",
+            sorted(body["environment"]["explicit"]),
+        )
+        body["host_sha256"] = module.boot._phase_f_digest(
+            "phase_f_attempt5_target_host_v1", body["host"]
+        )
+        body["mounts_sha256"] = module.boot._phase_f_digest(
+            "phase_f_attempt5_target_mounts_v1", body["mounts"]
+        )
+        body["network_sha256"] = module.boot._phase_f_digest(
+            "phase_f_attempt5_target_network_v1",
+            {
+                "name": body["network_name"],
+                "projection_sha256": body["network_projection_sha256"],
             },
         )
-        base = {
-            **module._OLD_CONTAINER,
-            "command_digest": "4" * 64,
-            "effect_digest": "5" * 64,
-            "effect_environment_digest": "6" * 64,
-            "effect_host_digest": "7" * 64,
-            "effect_mounts_digest": "8" * 64,
-            "image": authority.image,
-            "plan_digest": authority.plan_digest,
-            "target_config_digest": authority.target_config_digest,
+        body["create_arguments_sha256"] = module.boot._phase_f_digest(
+            "phase_f_attempt5_target_create_arguments_v1",
+            module.boot._phase_f_base_create_arguments(authority),
+        )
+        effect = {
+            **body,
+            "effect_sha256": module.boot._phase_f_digest(
+                "phase_f_attempt5_target_effect_v1", body
+            ),
         }
-        first = module.boot.PhaseFContainerProjection(
-            **{**base, "container_id": "9" * 64}
+        authority = module.replace(authority, effect=effect)
+        target = module.replace(
+            old,
+            command_digest=effect["command_sha256"],
+            container_id="attempt-8-target",
+            effect_digest=effect["effect_sha256"],
+            effect_environment_digest=effect["environment_sha256"],
+            effect_host_digest=(
+                module.boot._phase_f_effect_host_digest_with_restart(
+                    effect,
+                    module.boot.EXPECTED_RESTART_POLICY,
+                    module.boot.EXPECTED_RESTART_MAXIMUM_RETRY_COUNT,
+                )
+            ),
+            effect_mounts_digest=effect["mounts_sha256"],
+            health="healthy",
+            image=authority.image,
+            plan_digest=authority.plan_digest,
+            restart_maximum_retry_count=(
+                module.boot.EXPECTED_RESTART_MAXIMUM_RETRY_COUNT
+            ),
+            restart_policy=module.boot.EXPECTED_RESTART_POLICY,
+            status="running",
+            target_config_digest=authority.target_config_digest,
         )
-        second = module.boot.PhaseFContainerProjection(
-            **{**base, "container_id": "a" * 64}
+        running_network = module.replace(
+            network,
+            member_container_ids=(target.container_id,),
         )
-        self.assertTrue(module._target_matches_authority(authority, first))
-        self.assertTrue(module._target_matches_authority(authority, second))
-        self.assertNotEqual(first.container_id, second.container_id)
-        self.assertNotEqual(first.container_id, synthetic.old.container_id)
+        state = module.replace(
+            synthetic_state(),
+            archive=archive,
+            network=network,
+            old=old,
+            target=target,
+            target_authority=authority,
+            topology="archive_target",
+        )
+        effects = module.HostEffects(
+            module.ReleaseSelection("a" * 40, "b" * 40, "c" * 64, "d" * 64)
+        )
+
+        stopped = module.replace(target, status="exited", health="")
+        with (
+            mock.patch.object(
+                module.boot, "phase_f_container_projection", return_value=target
+            ),
+            mock.patch.object(
+                module.boot, "phase_f_network_projection", return_value=running_network
+            ),
+            mock.patch.object(
+                module.boot, "phase_f_stop_container_exact", return_value=stopped
+            ) as stop,
+        ):
+            effects.stop_target(state)
+        stop.assert_called_once_with(target, name=module.boot.CONTAINER)
+
+        with (
+            mock.patch.object(
+                module.boot,
+                "phase_f_container_projection",
+                side_effect=lambda name: (
+                    stopped if name == module.boot.CONTAINER else archive
+                ),
+            ),
+            mock.patch.object(
+                module.boot, "phase_f_network_projection", return_value=running_network
+            ),
+            mock.patch.object(module.boot, "phase_f_remove_container_exact") as remove,
+            mock.patch.object(module.boot, "phase_f_rename_container_exact") as rename,
+        ):
+            effects.restore_old_container(state)
+        remove.assert_called_once_with(stopped, expected_network=network)
+        rename.assert_called_once_with(
+            archive,
+            source_name=authority.archive_name,
+            target_name=module.boot.CONTAINER,
+        )
+
         self.assertFalse(
-            module._target_matches_authority(
+            module.boot.phase_f_target_matches_authority(
                 authority,
-                module.replace(second, effect_digest="b" * 64),
+                module.replace(target, container_id="sibling-target"),
+                network=running_network,
+                expected_container_id=target.container_id,
+            )
+        )
+        second_member = module.replace(
+            running_network,
+            member_container_ids=tuple(sorted((target.container_id, "second-target"))),
+        )
+        self.assertFalse(
+            module.boot.phase_f_target_matches_authority(
+                authority,
+                target,
+                network=second_member,
+                expected_container_id=target.container_id,
             )
         )
 
@@ -764,7 +908,16 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
                 "phase_f_create_target_stopped",
                 return_value=created,
             ) as create,
-            mock.patch.object(module, "_target_matches_authority", return_value=True),
+            mock.patch.object(
+                module.boot,
+                "phase_f_target_matches_authority",
+                return_value=True,
+            ),
+            mock.patch.object(
+                module.boot,
+                "phase_f_network_projection",
+                return_value=synthetic.network,
+            ),
         ):
             created_state = effects.create_target(archive_state)
         self.assertEqual(created_state.topology, "archive_target")
@@ -1080,8 +1233,8 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
                 )
                 stack.enter_context(
                     mock.patch.object(
-                        module,
-                        "_target_matches_authority",
+                        module.boot,
+                        "phase_f_target_matches_authority",
                         return_value=target_matches,
                     )
                 )
@@ -1422,7 +1575,7 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
     def test_fixed_identity_constants_and_sealed_members_are_unique(self) -> None:
         self.assertEqual(
             module.EXPECTED_DEPLOY_PARENT,
-            "00b39126ce8b742869cf1c6f2868d705e4bc8315",
+            "0afdc5a07fedc7144d8b6c483e32aaf1e9597d2b",
         )
         self.assertEqual(len(module._OLD_CONTAINER["container_id"]), 64)
         self.assertEqual(

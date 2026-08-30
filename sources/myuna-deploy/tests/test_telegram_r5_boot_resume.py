@@ -1039,6 +1039,184 @@ class TelegramR5ResumeTests(unittest.TestCase):
             with self.subTest(field=field), self.assertRaises(module.ResumeRejected):
                 replace(self.target(), effect=hostile)
 
+    def test_complete_target_authority_accepts_only_two_restart_host_pairs(self) -> None:
+        target = self.target()
+        network = self.network()
+        archive = replace(
+            self.container(status="exited", health=""),
+            name=target.archive_name,
+        )
+        effect = self.target_effect(target, network, archive)
+        authority = replace(target, effect=effect)
+        pre_policy = replace(
+            self.container(
+                container_id="attempt-8-target",
+                status="created",
+                health="",
+                policy="no",
+                policy_maximum=0,
+                plan_digest=authority.plan_digest,
+                target_config_digest=authority.target_config_digest,
+                image=authority.image,
+            ),
+            command_digest=effect["command_sha256"],
+            effect_digest=effect["effect_sha256"],
+            effect_environment_digest=effect["environment_sha256"],
+            effect_host_digest=effect["host_sha256"],
+            effect_mounts_digest=effect["mounts_sha256"],
+        )
+        post_digest = module._phase_f_effect_host_digest_with_restart(
+            effect,
+            module.EXPECTED_RESTART_POLICY,
+            module.EXPECTED_RESTART_MAXIMUM_RETRY_COUNT,
+        )
+        post_policy = replace(
+            pre_policy,
+            status="running",
+            health="healthy",
+            restart_policy=module.EXPECTED_RESTART_POLICY,
+            restart_maximum_retry_count=(
+                module.EXPECTED_RESTART_MAXIMUM_RETRY_COUNT
+            ),
+            effect_host_digest=post_digest,
+        )
+        running_network = replace(
+            network,
+            member_container_ids=(post_policy.container_id,),
+        )
+
+        self.assertTrue(
+            module.phase_f_target_matches_authority(
+                authority,
+                pre_policy,
+                network=network,
+                expected_container_id=pre_policy.container_id,
+            )
+        )
+        self.assertTrue(
+            module.phase_f_target_matches_authority(
+                authority,
+                post_policy,
+                network=running_network,
+                expected_container_id=post_policy.container_id,
+            )
+        )
+        self.assertNotEqual(effect["host_sha256"], post_digest)
+
+        hostile = (
+            replace(pre_policy, effect_host_digest=post_digest),
+            replace(post_policy, effect_host_digest=effect["host_sha256"]),
+            replace(post_policy, restart_policy="always"),
+            replace(post_policy, restart_maximum_retry_count=4),
+            replace(post_policy, effect_host_digest="0" * 64),
+            replace(post_policy, command_digest="0" * 64),
+            replace(post_policy, effect_digest="0" * 64),
+            replace(post_policy, effect_environment_digest="0" * 64),
+            replace(post_policy, effect_mounts_digest="0" * 64),
+            replace(post_policy, image=module.EXPECTED_IMAGE_PREFIX + "0" * 64),
+            replace(post_policy, plan_digest="0" * 64),
+            replace(post_policy, target_config_digest="0" * 64),
+            replace(post_policy, user="0:0"),
+            replace(post_policy, name="sibling"),
+            replace(post_policy, project="sibling"),
+            replace(post_policy, service="sibling"),
+            replace(post_policy, network_names=("sibling",)),
+        )
+        for observed in hostile:
+            with self.subTest(observed=observed):
+                self.assertFalse(
+                    module.phase_f_target_matches_authority(
+                        authority,
+                        observed,
+                        network=running_network,
+                        expected_container_id=post_policy.container_id,
+                    )
+                )
+
+        for hostile_network in (
+            replace(running_network, network_id="sibling-network"),
+            replace(running_network, member_container_ids=()),
+            replace(
+                running_network,
+                member_container_ids=tuple(
+                    sorted(("second-target", post_policy.container_id))
+                ),
+            ),
+        ):
+            expected = hostile_network.member_container_ids == ()
+            self.assertEqual(
+                module.phase_f_target_matches_authority(
+                    authority,
+                    post_policy,
+                    network=hostile_network,
+                    expected_container_id=post_policy.container_id,
+                ),
+                expected,
+            )
+        self.assertFalse(
+            module.phase_f_target_matches_authority(
+                authority,
+                post_policy,
+                network=running_network,
+                expected_container_id="sibling-target",
+            )
+        )
+
+        hostile_effect = dict(effect)
+        hostile_effect["host_sha256"] = "0" * 64
+        hostile_authority = mock.Mock(
+            archive_name=authority.archive_name,
+            channel_root=authority.channel_root,
+            effect=hostile_effect,
+            image=authority.image,
+            media_auth_runtime_root=authority.media_auth_runtime_root,
+            plan_digest=authority.plan_digest,
+            plugin_root=authority.plugin_root,
+            runtime_root=authority.runtime_root,
+            signing_secret=authority.signing_secret,
+            target_config_digest=authority.target_config_digest,
+            user=authority.user,
+        )
+        self.assertFalse(
+            module.phase_f_target_matches_authority(
+                hostile_authority,
+                post_policy,
+                network=running_network,
+                expected_container_id=post_policy.container_id,
+            )
+        )
+
+    def test_start_poststate_uses_finite_sanitized_categories(self) -> None:
+        selected = self.container(
+            container_id="target-object",
+            status="created",
+            health="",
+        )
+        cases = (
+            (None, "phase_f_start_poststate_missing"),
+            (
+                replace(selected, container_id="sibling-object"),
+                "phase_f_start_poststate_identity_rejected",
+            ),
+            (
+                replace(selected, status="dead"),
+                "phase_f_start_poststate_state_rejected",
+            ),
+        )
+        for observed, code in cases:
+            runner = mock.Mock(return_value="")
+            with self.subTest(code=code), mock.patch.object(
+                module,
+                "phase_f_container_projection",
+                side_effect=(selected, observed),
+            ), self.assertRaisesRegex(module.ResumeRejected, code):
+                module.phase_f_start_container_exact(
+                    selected,
+                    runner=runner,
+                    sleeper=lambda _seconds: None,
+                )
+            runner.assert_called_once()
+
     def test_lost_return_reobservation_accepts_only_exact_poststate(self) -> None:
         old = self.container()
         substituted = replace(old, status="exited", health="", mounts_digest="f" * 64)
