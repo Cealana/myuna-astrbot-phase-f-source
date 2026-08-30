@@ -19,7 +19,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 CORE = Path("/srv/myuna/repos/core")
 sys.path.insert(0, (ROOT / "scripts").as_posix())
-ACCEPTED_PARENT = "0afdc5a07fedc7144d8b6c483e32aaf1e9597d2b"
+ACCEPTED_PARENT = "d891a6ed0d213c60f284cb9258057c4dc5f08978"
 CORE_COMMIT = "4c13c0b20552b5d8a8720f180d0569405fed00b0"
 CONFIG_SHA256 = "e" * 64
 MODULE_PATH = ROOT / "scripts/build_telegram_r5_controller_release_v1.py"

@@ -30,7 +30,7 @@ import telegram_r5_boot_resume as boot
 
 
 SCHEMA = "myuna.phase-f.owner-adjudicated-one-time-cutover.v1"
-EXPECTED_DEPLOY_PARENT = "0afdc5a07fedc7144d8b6c483e32aaf1e9597d2b"
+EXPECTED_DEPLOY_PARENT = "d891a6ed0d213c60f284cb9258057c4dc5f08978"
 _FIXED_PRODUCT_AUTHORITY_FIELDS = (
     "builder",
     "controller",
@@ -60,6 +60,12 @@ CURRENT_CONTROLLER_RELEASE = (
     "b78ef052c838dc896f98cb9ef8d2a0c96ae55b2d1146ede39d8e8753a976aa69"
 )
 OLD_UNIT_SHA256 = "0cd6edb71096a7e9ceccc996e912e5d0836c871053e88f47e9611e918351ed76"
+ATTEMPT8_HISTORICAL_TARGET_RELEASE = (
+    "766c109a47f0a614b92e8182d54ae595dc98a12ed1be8df4b84d5c33eb489cd7"
+)
+ATTEMPT8_HISTORICAL_TARGET_UNIT_SHA256 = (
+    "05e155bb7c8a1019af720e1483777b7878d0480cf2da753f226c337067ae53da"
+)
 UNIT_PATH = Path("/etc/systemd/system/myuna-telegram-owner-r5-resume.service")
 UNIT_TEMPLATE = "myuna-telegram-owner-r5-resume.service.in"
 CUTOVER_MEMBER = "phase_f_owner_adjudicated_one_time_cutover_v1.py"
@@ -665,6 +671,78 @@ class HostEffects:
         return boot.run(["/usr/bin/systemctl", "is-active", unit], check=False)
 
     @staticmethod
+    def _attempt8_historical_target_unit_sha256() -> str:
+        """Verify the one retained Attempt-8 release and render its sealed unit."""
+
+        release_root = RELEASES_ROOT / ATTEMPT8_HISTORICAL_TARGET_RELEASE
+        try:
+            historical_builder = _load_module(
+                "_phase_f_attempt8_historical_release_builder",
+                release_root / BUILDER_MEMBER,
+            )
+            verified = historical_builder.verified_controller_authority(
+                RELEASES_ROOT,
+                ATTEMPT8_HISTORICAL_TARGET_RELEASE,
+            )
+            expected = historical_builder.expected_controller_authority(
+                RELEASES_ROOT,
+                ATTEMPT8_HISTORICAL_TARGET_RELEASE,
+            )
+            selected = historical_builder.controller_selection_tuple(
+                RELEASES_ROOT,
+                ATTEMPT8_HISTORICAL_TARGET_RELEASE,
+            )
+            _require(
+                historical_builder.verify_release(
+                    RELEASES_ROOT,
+                    ATTEMPT8_HISTORICAL_TARGET_RELEASE,
+                    expected,
+                ),
+                "rollback_unit_prestate_rejected",
+            )
+        except Exception:
+            raise CutoverRejected("rollback_unit_prestate_rejected") from None
+        source = verified.get("source") if type(verified) is dict else None
+        selection = ReleaseSelection(
+            deploy_commit=str(selected.get("deploy_commit")),
+            deploy_tree=str(selected.get("deploy_tree")),
+            public_package_sha256=str(selected.get("public_package_sha256")),
+            release_sha256=str(selected.get("release_sha256")),
+        )
+        _require(
+            type(verified) is dict
+            and set(verified) == _VERIFIED_CONTROLLER_AUTHORITY_FIELDS
+            and verified.get("release_sha256") == ATTEMPT8_HISTORICAL_TARGET_RELEASE
+            and type(source) is dict
+            and source.get("deploy_commit") == selection.deploy_commit
+            and source.get("deploy_tree") == selection.deploy_tree
+            and selection.release_sha256 == ATTEMPT8_HISTORICAL_TARGET_RELEASE
+            and set(expected) == _EXPECTED_CONTROLLER_AUTHORITY_FIELDS
+            and expected.get("controller_release_sha256")
+            == ATTEMPT8_HISTORICAL_TARGET_RELEASE
+            and expected.get("controller_static_authority_sha256")
+            == verified.get("authority_sha256")
+            and all(
+                type(value) is str and _DIGEST.fullmatch(value) is not None
+                for value in expected.values()
+            ),
+            "rollback_unit_prestate_rejected",
+        )
+        unit_sha256 = sha256(
+            _render_unit(
+                release_root,
+                expected,
+                guard=True,
+                selection=selection,
+            )
+        ).hexdigest()
+        _require(
+            unit_sha256 == ATTEMPT8_HISTORICAL_TARGET_UNIT_SHA256,
+            "rollback_unit_prestate_rejected",
+        )
+        return unit_sha256
+
+    @staticmethod
     def _staged_signing_state() -> str:
         uid_text, gid_text = str(_OLD_CONTAINER["user"]).split(":", 1)
         authority = _bounded_regular_digest(
@@ -834,7 +912,6 @@ class HostEffects:
                 all(current_match or target_match for current_match, target_match in zip(current_matches, target_matches, strict=True)),
                 "rollback_file_prestate_rejected",
             )
-            _require(unit_sha in {OLD_UNIT_SHA256, sha256(new_unit).hexdigest()}, "rollback_unit_prestate_rejected")
             _require(
                 topology in {"old_only", "archive_only", "archive_target"},
                 "rollback_container_prestate_rejected",
@@ -843,6 +920,22 @@ class HostEffects:
                 signing_state in {"absent", "exact"},
                 "rollback_signing_prestate_rejected",
             )
+            historical_unit = unit_sha == ATTEMPT8_HISTORICAL_TARGET_UNIT_SHA256
+            if historical_unit:
+                _require(
+                    topology == "archive_target"
+                    and unit_sha == self._attempt8_historical_target_unit_sha256()
+                    and all(
+                        self._service_state(unit) in {"inactive", "failed"}
+                        for unit in SERVICES
+                    ),
+                    "rollback_unit_prestate_rejected",
+                )
+            else:
+                _require(
+                    unit_sha in {OLD_UNIT_SHA256, sha256(new_unit).hexdigest()},
+                    "rollback_unit_prestate_rejected",
+                )
             if topology in {"old_only", "archive_only"}:
                 _require(
                     network.member_container_ids == ()

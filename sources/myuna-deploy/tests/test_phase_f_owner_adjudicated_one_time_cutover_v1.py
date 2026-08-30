@@ -1190,6 +1190,8 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
             governed: tuple[str, ...] = (module.boot.CONTAINER,),
             target_matches: bool = False,
             signing_state: str = "absent",
+            unit: bytes | None = None,
+            service_state: str = "inactive",
         ) -> module.Preflight:
             with ExitStack() as stack:
                 stack.enter_context(
@@ -1206,7 +1208,8 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
                         ),
                     )
                 )
-                stack.enter_context(mock.patch.object(module, "_read_regular", return_value=synthetic.old_unit))
+                observed_unit = synthetic.old_unit if unit is None else unit
+                stack.enter_context(mock.patch.object(module, "_read_regular", return_value=observed_unit))
                 stack.enter_context(mock.patch.object(module, "OLD_UNIT_SHA256", old_sha))
                 stack.enter_context(
                     mock.patch.object(
@@ -1216,7 +1219,9 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
                     )
                 )
                 stack.enter_context(mock.patch.object(module.boot, "phase_f_network_projection", return_value=network))
-                stack.enter_context(mock.patch.object(effects, "_service_state", return_value="inactive"))
+                stack.enter_context(
+                    mock.patch.object(effects, "_service_state", return_value=service_state)
+                )
                 stack.enter_context(
                     mock.patch.object(
                         effects,
@@ -1339,6 +1344,91 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
         )
         self.assertEqual(admitted.topology, "archive_target")
         self.assertEqual(admitted.target.container_id, "a" * 64)
+
+        historical_unit = b"historical-attempt8-target-unit\n"
+        historical_sha = sha256(historical_unit).hexdigest()
+        with (
+            mock.patch.object(
+                module,
+                "ATTEMPT8_HISTORICAL_TARGET_UNIT_SHA256",
+                historical_sha,
+            ),
+            mock.patch.object(
+                effects,
+                "_attempt8_historical_target_unit_sha256",
+                return_value=historical_sha,
+            ) as historical_authority,
+        ):
+            historical = preflight(
+                all_current,
+                "rollback",
+                containers=archive_target,
+                governed=tuple(
+                    sorted(
+                        (
+                            module.boot.CONTAINER,
+                            synthetic.target_authority.archive_name,
+                        )
+                    )
+                ),
+                target_matches=True,
+                unit=historical_unit,
+            )
+            self.assertEqual(historical.topology, "archive_target")
+            historical_authority.assert_called_once_with()
+            for rejected_mode in ("preflight", "cutover"):
+                with self.subTest(mode=rejected_mode), self.assertRaisesRegex(
+                    module.CutoverRejected,
+                    "cutover_file_prestate_rejected",
+                ):
+                    preflight(all_current, rejected_mode, unit=historical_unit)
+            for rejected in (
+                {"containers": projections},
+                {"containers": archive_target, "service_state": "active"},
+            ):
+                with self.subTest(rejected=rejected), self.assertRaisesRegex(
+                    module.CutoverRejected,
+                    "rollback_unit_prestate_rejected",
+                ):
+                    preflight(
+                        all_current,
+                        "rollback",
+                        governed=(
+                            tuple(
+                                sorted(
+                                    (
+                                        module.boot.CONTAINER,
+                                        synthetic.target_authority.archive_name,
+                                    )
+                                )
+                            )
+                            if rejected["containers"] is archive_target
+                            else (module.boot.CONTAINER,)
+                        ),
+                        target_matches=rejected["containers"] is archive_target,
+                        unit=historical_unit,
+                        **rejected,
+                    )
+            arbitrary = b"arbitrary-third-unit\n"
+            with self.assertRaisesRegex(
+                module.CutoverRejected,
+                "rollback_unit_prestate_rejected",
+            ):
+                preflight(
+                    all_current,
+                    "rollback",
+                    containers=archive_target,
+                    governed=tuple(
+                        sorted(
+                            (
+                                module.boot.CONTAINER,
+                                synthetic.target_authority.archive_name,
+                            )
+                        )
+                    ),
+                    target_matches=True,
+                    unit=arbitrary,
+                )
 
     def test_per_role_atomic_fault_and_lost_return_matrix_is_single_dispatch(self) -> None:
         stages = (
@@ -1575,8 +1665,29 @@ class OwnerAdjudicatedCutoverTests(unittest.TestCase):
     def test_fixed_identity_constants_and_sealed_members_are_unique(self) -> None:
         self.assertEqual(
             module.EXPECTED_DEPLOY_PARENT,
-            "0afdc5a07fedc7144d8b6c483e32aaf1e9597d2b",
+            "d891a6ed0d213c60f284cb9258057c4dc5f08978",
         )
+        self.assertEqual(
+            module.ATTEMPT8_HISTORICAL_TARGET_RELEASE,
+            "766c109a47f0a614b92e8182d54ae595dc98a12ed1be8df4b84d5c33eb489cd7",
+        )
+        self.assertEqual(
+            module.ATTEMPT8_HISTORICAL_TARGET_UNIT_SHA256,
+            "05e155bb7c8a1019af720e1483777b7878d0480cf2da753f226c337067ae53da",
+        )
+        self.assertEqual(
+            module.HostEffects._attempt8_historical_target_unit_sha256(),
+            module.ATTEMPT8_HISTORICAL_TARGET_UNIT_SHA256,
+        )
+        with mock.patch.object(
+            module,
+            "ATTEMPT8_HISTORICAL_TARGET_UNIT_SHA256",
+            "f" * 64,
+        ), self.assertRaisesRegex(
+            module.CutoverRejected,
+            "rollback_unit_prestate_rejected",
+        ):
+            module.HostEffects._attempt8_historical_target_unit_sha256()
         self.assertEqual(len(module._OLD_CONTAINER["container_id"]), 64)
         self.assertEqual(
             module.CURRENT_CONTROLLER_RELEASE,
